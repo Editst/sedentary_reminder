@@ -13,13 +13,7 @@ import { loadSnapshot, writeSettings, writeState } from "../shared/storage.js";
 const REMINDER_PATH = "src/notification/notification.html";
 const REMINDER_URL = globalThis.chrome.runtime.getURL(REMINDER_PATH);
 const REMINDER_TEST_URL = `${REMINDER_URL}?test=1`;
-const ICON_URL = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-    <rect width="128" height="128" rx="28" fill="#1f2937" />
-    <circle cx="64" cy="64" r="38" fill="#f59e0b" />
-    <path d="M64 34v34l24 14" stroke="#111827" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-  </svg>
-`)}`;
+const ICON_URL = globalThis.chrome.runtime.getURL("src/assets/icons/time-reminder-128.png");
 
 const MODE_LABELS = {
   [MODES.work]: "Working",

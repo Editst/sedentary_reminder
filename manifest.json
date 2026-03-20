@@ -3,6 +3,9 @@
   "name": "Time Reminder",
   "version": "0.1.0",
   "description": "Work timer and healthy break reminders for Chrome.",
+  "icons": {
+    "128": "src/assets/icons/time-reminder-128.png"
+  },
   "permissions": [
     "alarms",
     "notifications",

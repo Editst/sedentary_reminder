@@ -6,7 +6,41 @@ function clampInteger(value, min, max, fallback) {
     return fallback;
   }
 
-  return Math.min(Math.max(parsed, min), max);
+  if (parsed < min) {
+    return fallback;
+  }
+
+  if (parsed > max) {
+    return max;
+  }
+
+  return parsed;
+}
+
+function normalizeSnoozeOption(value, min, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed < min || parsed > max) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function clampIntegerToMin(value, min, max, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    return fallback;
+  }
+
+  if (parsed < min) {
+    return min;
+  }
+
+  if (parsed > max) {
+    return max;
+  }
+
+  return parsed;
 }
 
 export function normalizeSettings(input = {}) {
@@ -17,8 +51,8 @@ export function normalizeSettings(input = {}) {
 
   const snoozeMinutesOptions = Array.isArray(merged.snoozeMinutesOptions)
     ? merged.snoozeMinutesOptions
-        .map((value) => clampInteger(value, 1, 60, 0))
-        .filter((value) => value > 0)
+        .map((value) => normalizeSnoozeOption(value, 1, 60))
+        .filter((value) => value !== null)
         .slice(0, 3)
     : DEFAULT_SETTINGS.snoozeMinutesOptions;
 
@@ -38,7 +72,7 @@ export function normalizeSettings(input = {}) {
       DEFAULT_SETTINGS.longBreakMinutes
     ),
     longBreakEvery: clampInteger(merged.longBreakEvery, 1, 12, DEFAULT_SETTINGS.longBreakEvery),
-    reminderAutoCloseSeconds: clampInteger(
+    reminderAutoCloseSeconds: clampIntegerToMin(
       merged.reminderAutoCloseSeconds,
       5,
       300,
