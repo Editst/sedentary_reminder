@@ -3,49 +3,56 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Time Reminder - Options</title>
+    <title>久坐提醒设置</title>
     <link rel="stylesheet" href="./options.css" />
   </head>
   <body>
     <main class="page">
       <section class="panel">
         <header class="hero">
-          <p class="eyebrow">Time Reminder</p>
-          <h1>提醒设置</h1>
-          <p class="subtle">配置工作时长、休息时长、自动关闭和提醒文案。</p>
+          <p class="eyebrow">久坐提醒</p>
+          <h1>提醒与休息设置</h1>
+          <p class="subtle">在这里统一配置专注时长、休息节奏、提醒文案和提醒页关闭时间。</p>
         </header>
 
         <form id="settings-form" class="form">
-          <label>
-            <span>启用提醒</span>
+          <label class="toggle-row">
+            <span>
+              <strong>启用提醒</strong>
+              <small>关闭后将停止调度、通知和提醒页。</small>
+            </span>
             <input id="enabled" type="checkbox" />
           </label>
+
+          <div class="grid two-columns">
+            <label>
+              <span>专注时长（分钟）</span>
+              <input id="workMinutes" type="number" min="1" max="240" />
+            </label>
+            <label>
+              <span>短休息（分钟）</span>
+              <input id="shortBreakMinutes" type="number" min="1" max="60" />
+            </label>
+            <label>
+              <span>长休息（分钟）</span>
+              <input id="longBreakMinutes" type="number" min="1" max="120" />
+            </label>
+            <label>
+              <span>长休息频率</span>
+              <input id="longBreakEvery" type="number" min="1" max="12" />
+            </label>
+            <label>
+              <span>提醒页自动关闭（秒）</span>
+              <input id="reminderAutoCloseSeconds" type="number" min="5" max="300" />
+            </label>
+            <label>
+              <span>休息倒计时（秒）</span>
+              <input id="breakCountdownSeconds" type="number" min="10" max="7200" />
+            </label>
+          </div>
+
           <label>
-            <span>工作时长（分钟）</span>
-            <input id="workMinutes" type="number" min="1" max="240" />
-          </label>
-          <label>
-            <span>短休息（分钟）</span>
-            <input id="shortBreakMinutes" type="number" min="1" max="60" />
-          </label>
-          <label>
-            <span>长休息（分钟）</span>
-            <input id="longBreakMinutes" type="number" min="1" max="120" />
-          </label>
-          <label>
-            <span>每几次短休息后进入长休息</span>
-            <input id="longBreakEvery" type="number" min="1" max="12" />
-          </label>
-          <label>
-            <span>提醒页自动关闭（秒）</span>
-            <input id="reminderAutoCloseSeconds" type="number" min="5" max="300" />
-          </label>
-          <label>
-            <span>休息倒计时（秒）</span>
-            <input id="breakCountdownSeconds" type="number" min="10" max="7200" />
-          </label>
-          <label>
-            <span>延后选项（逗号分隔）</span>
+            <span>延后选项（分钟，逗号分隔）</span>
             <input id="snoozeMinutesOptions" type="text" placeholder="5,10" />
           </label>
           <label>
@@ -58,9 +65,9 @@
           </label>
 
           <div class="actions">
-            <button id="save" type="submit">保存设置</button>
-            <button id="reset" type="button">恢复默认</button>
-            <button id="test" type="button">测试提醒</button>
+            <button id="save" type="submit">保存并立即生效</button>
+            <button id="test" type="button">发送测试提醒</button>
+            <button id="reset" type="button">恢复默认设置</button>
           </div>
         </form>
 

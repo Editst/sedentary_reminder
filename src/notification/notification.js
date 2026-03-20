@@ -3,15 +3,21 @@ import { MESSAGE_TYPES } from "../shared/constants.js";
 const titleEl = document.querySelector("#title");
 const messageEl = document.querySelector("#message");
 const countdownEl = document.querySelector("#countdown");
+const countdownCopyEl = document.querySelector("#countdown-copy");
+const progressEl = document.querySelector("#progress");
 const statusEl = document.querySelector("#status");
-const startBreakButton = document.querySelector("#start-break");
+const primaryActionButton = document.querySelector("#primary-action");
 const snooze5Button = document.querySelector("#snooze-5");
 const snooze10Button = document.querySelector("#snooze-10");
 const skipButton = document.querySelector("#skip");
 
 let countdownTimer = null;
+let syncTimer = null;
 let closeTimer = null;
 let remainingSeconds = 0;
+let initialSeconds = 0;
+let primaryAction = MESSAGE_TYPES.skip;
+let countdownStarted = false;
 
 function sendMessage(message) {
   return new Promise((resolve, reject) => {
@@ -23,7 +29,7 @@ function sendMessage(message) {
       }
 
       if (!response?.ok) {
-        reject(new Error(response?.error || "Unknown error"));
+        reject(new Error(response?.error || "未知错误"));
         return;
       }
 
@@ -38,10 +44,15 @@ function formatSeconds(totalSeconds) {
   return `${minutes}:${seconds}`;
 }
 
-function tickCountdown() {
-  countdownEl.textContent = formatSeconds(Math.max(0, remainingSeconds));
+function renderCountdown() {
+  const safeSeconds = Math.max(0, remainingSeconds);
+  const ratio = initialSeconds > 0 ? safeSeconds / initialSeconds : 0;
+  countdownEl.textContent = formatSeconds(safeSeconds);
+  countdownCopyEl.textContent = `当前提醒页将在 ${safeSeconds} 秒后自动关闭。`;
+  progressEl.style.transform = `scaleX(${Math.max(0, Math.min(1, ratio))})`;
+
   if (remainingSeconds <= 0) {
-    statusEl.textContent = "提醒页已到自动关闭时间。";
+    statusEl.textContent = "倒计时结束，提醒页即将关闭。";
     window.close();
     return;
   }
@@ -50,45 +61,120 @@ function tickCountdown() {
 }
 
 function startCountdown(seconds) {
+  initialSeconds = Math.max(1, seconds);
   remainingSeconds = Math.max(0, seconds);
-  tickCountdown();
-  countdownTimer = window.setInterval(tickCountdown, 1000);
+  countdownStarted = true;
+  renderCountdown();
+
+  if (countdownTimer) {
+    window.clearInterval(countdownTimer);
+  }
+
+  countdownTimer = window.setInterval(renderCountdown, 1000);
+
+  if (closeTimer) {
+    window.clearTimeout(closeTimer);
+  }
+  closeTimer = window.setTimeout(() => window.close(), seconds * 1000);
 }
 
 function clearTimers() {
   if (countdownTimer) {
     window.clearInterval(countdownTimer);
   }
+
+  if (syncTimer) {
+    window.clearInterval(syncTimer);
+  }
+
   if (closeTimer) {
     window.clearTimeout(closeTimer);
   }
 }
 
-async function loadState() {
-  const snapshot = await sendMessage({ type: MESSAGE_TYPES.getStatus });
-  titleEl.textContent = snapshot.state.mode === "work" ? "工作提醒" : "休息提醒";
-  messageEl.textContent = snapshot.settings.reminderBody;
-  statusEl.textContent = snapshot.reminderVisible ? "提醒已打开。" : "正在显示提醒页。";
-  const closeSeconds = snapshot.settings.reminderAutoCloseSeconds || 30;
-  startCountdown(closeSeconds);
-  closeTimer = window.setTimeout(() => window.close(), closeSeconds * 1000);
+function renderReadonlyState() {
+  primaryAction = MESSAGE_TYPES.skip;
+  primaryActionButton.textContent = "关闭提醒页";
+  snooze5Button.hidden = true;
+  snooze10Button.hidden = true;
+  skipButton.hidden = true;
+}
 
-  const isBreak = snapshot.state.mode === "shortBreak" || snapshot.state.mode === "longBreak";
-  startBreakButton.hidden = !isBreak;
+function renderActions(snapshot) {
+  if (!snapshot.hasActiveReminder) {
+    renderReadonlyState();
+    statusEl.textContent = "当前没有有效提醒动作。此页面仅用于查看并可直接关闭。";
+    return;
+  }
+
+  if (snapshot.reminderKind === "test") {
+    primaryAction = MESSAGE_TYPES.skip;
+    primaryActionButton.textContent = "关闭测试提醒";
+    snooze5Button.hidden = true;
+    snooze10Button.hidden = true;
+    skipButton.hidden = true;
+    return;
+  }
+
+  if (snapshot.canEndBreak) {
+    primaryAction = MESSAGE_TYPES.endBreak;
+    primaryActionButton.textContent = "结束休息，返回工作";
+    snooze5Button.hidden = true;
+    snooze10Button.hidden = true;
+    skipButton.hidden = true;
+    return;
+  }
+
+  if (snapshot.canStartBreak) {
+    primaryAction = MESSAGE_TYPES.startBreak;
+    primaryActionButton.textContent = "立即开始休息";
+    snooze5Button.hidden = !snapshot.canSnooze;
+    snooze10Button.hidden = !snapshot.canSnooze;
+    skipButton.hidden = false;
+    skipButton.textContent = "暂不处理";
+    return;
+  }
+
+  renderReadonlyState();
+  statusEl.textContent = "当前状态不允许执行提醒动作。你可以直接关闭此窗口。";
+}
+
+function renderSnapshot(snapshot) {
+  titleEl.textContent = snapshot.reminderTitle;
+  messageEl.textContent = snapshot.reminderMessage;
+  statusEl.textContent = snapshot.reminderVisible
+    ? "提醒窗口已进入单实例模式，重复触发会直接聚焦当前窗口。"
+    : "提醒窗口已同步最新状态。";
+  renderActions(snapshot);
+
+  if (!countdownStarted) {
+    const closeSeconds = snapshot.autoCloseSeconds || snapshot.settings.reminderAutoCloseSeconds || 30;
+    startCountdown(closeSeconds);
+  }
+}
+
+async function syncSnapshot() {
+  const snapshot = await sendMessage({ type: MESSAGE_TYPES.getStatus });
+  renderSnapshot(snapshot);
 }
 
 async function act(type, extra = {}) {
-  statusEl.textContent = "正在处理...";
+  statusEl.textContent = "正在处理你的操作...";
   await sendMessage({ type, ...extra });
   clearTimers();
   window.close();
 }
 
-startBreakButton.addEventListener("click", () => act(MESSAGE_TYPES.startBreak));
+primaryActionButton.addEventListener("click", () => act(primaryAction));
 snooze5Button.addEventListener("click", () => act(MESSAGE_TYPES.snooze, { minutes: 5 }));
 snooze10Button.addEventListener("click", () => act(MESSAGE_TYPES.snooze, { minutes: 10 }));
 skipButton.addEventListener("click", () => act(MESSAGE_TYPES.skip));
-
 window.addEventListener("beforeunload", clearTimers);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    void syncSnapshot();
+  }
+});
 
-await loadState();
+await syncSnapshot();
+syncTimer = window.setInterval(syncSnapshot, 5000);

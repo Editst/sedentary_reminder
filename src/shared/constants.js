@@ -34,8 +34,8 @@ export const DEFAULT_SETTINGS = {
   reminderAutoCloseSeconds: 30,
   breakCountdownSeconds: 300,
   snoozeMinutesOptions: [5, 10],
-  reminderTitle: "Time to move",
-  reminderBody: "Stand up, stretch, and drink some water."
+  reminderTitle: "该起身活动了",
+  reminderBody: "站起来走一走，伸展一下，顺手喝点水。"
 };
 
 export const DEFAULT_STATE = {
@@ -47,5 +47,6 @@ export const DEFAULT_STATE = {
   snoozedUntil: 0,
   notificationOpen: false,
   previousMode: MODES.work,
-  notificationTabId: null
+  notificationTabId: null,
+  reminderKind: null
 };

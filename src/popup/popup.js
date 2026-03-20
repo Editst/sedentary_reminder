@@ -1,8 +1,11 @@
-import { MESSAGE_TYPES } from "../shared/constants.js";
+import { MESSAGE_TYPES, MODES } from "../shared/constants.js";
 
 const modeEl = document.querySelector("#mode");
 const detailEl = document.querySelector("#detail");
 const remainingEl = document.querySelector("#remaining");
+const remainingLabelEl = document.querySelector("#remaining-label");
+const cycleEl = document.querySelector("#cycle");
+const windowStateEl = document.querySelector("#window-state");
 const statusEl = document.querySelector("#status");
 const pauseButton = document.querySelector("#pause");
 const resumeButton = document.querySelector("#resume");
@@ -19,7 +22,7 @@ function sendMessage(message) {
       }
 
       if (!response?.ok) {
-        reject(new Error(response?.error || "Unknown error"));
+        reject(new Error(response?.error || "未知错误"));
         return;
       }
 
@@ -36,14 +39,22 @@ function formatDuration(ms) {
 }
 
 function render(snapshot) {
-  modeEl.textContent = snapshot.modeLabel;
-  detailEl.textContent = snapshot.currentPhaseLabel;
+  modeEl.textContent = snapshot.enabled ? snapshot.modeLabel : "提醒已关闭";
+  detailEl.textContent = snapshot.enabled
+    ? snapshot.currentPhaseLabel
+    : "如需继续使用，请在设置页重新启用提醒。";
   remainingEl.textContent = formatDuration(snapshot.remainingMs);
-  pauseButton.disabled = !snapshot.canPause;
-  resumeButton.disabled = !snapshot.canResume;
-  statusEl.textContent = snapshot.reminderVisible
-    ? "提醒页已打开"
-    : `循环：${snapshot.state.cycleCount}，${snapshot.state.mode}`;
+  remainingLabelEl.textContent = snapshot.state.mode === MODES.paused ? "冻结的剩余时间" : "距离下一次动作";
+  cycleEl.textContent = `长休息进度：第 ${snapshot.state.cycleCount} 轮`;
+  windowStateEl.textContent = snapshot.reminderVisible
+    ? `提醒窗口已打开${snapshot.reminderKind === "test" ? "（测试提醒）" : ""}`
+    : "提醒窗口当前未打开";
+  pauseButton.disabled = !snapshot.canPause || !snapshot.enabled;
+  resumeButton.disabled = !snapshot.canResume || !snapshot.enabled;
+  testButton.disabled = !snapshot.enabled;
+  statusEl.textContent = snapshot.enabled
+    ? (snapshot.reminderVisible ? "如重复点击测试提醒，将直接聚焦现有提醒窗口。" : "后台运行正常。")
+    : "提醒关闭时不会再调度通知或提醒页。";
 }
 
 async function refresh() {
@@ -52,19 +63,19 @@ async function refresh() {
 }
 
 pauseButton.addEventListener("click", async () => {
-  statusEl.textContent = "正在暂停...";
+  statusEl.textContent = "正在暂停提醒...";
   await sendMessage({ type: MESSAGE_TYPES.pause });
   await refresh();
 });
 
 resumeButton.addEventListener("click", async () => {
-  statusEl.textContent = "正在恢复...";
+  statusEl.textContent = "正在恢复提醒...";
   await sendMessage({ type: MESSAGE_TYPES.resume });
   await refresh();
 });
 
 testButton.addEventListener("click", async () => {
-  statusEl.textContent = "正在发送测试提醒...";
+  statusEl.textContent = "正在打开测试提醒...";
   await sendMessage({ type: MESSAGE_TYPES.testReminder });
   await refresh();
 });

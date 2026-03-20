@@ -1,44 +1,46 @@
-# Time Reminder
+# 久坐提醒
 
-Chrome MV3 reminder extension for focused work and healthy breaks.
+一个可直接从仓库根目录加载的 Chrome MV3 扩展，用于专注计时、起身活动提醒和短休息/长休息切换。
 
-## What it does
+## 功能概览
 
-- Tracks work sessions and switches between work, short break, and long break modes
-- Shows a system notification and a dedicated reminder page when a break is due
-- Supports pause, resume, snooze for 5 or 10 minutes, skip, and a test reminder
-- Persists settings in `chrome.storage.sync` and runtime state in `chrome.storage.local`
-- Exposes a popup for quick status checks and an options page for configuration
+- 专注工作、短休息、长休息三种状态循环
+- 到点后同时发送系统通知并打开提醒页
+- 支持暂停、恢复、延后 5/10 分钟、跳过、测试提醒
+- 设置保存在 `chrome.storage.sync`，运行状态保存在 `chrome.storage.local`
+- 弹出页可查看当前状态，设置页可直接调整提醒策略
+- 提醒页采用单实例策略：正式提醒和测试提醒都会复用同一个提醒窗口
 
-## Load as unpacked extension
+## 作为未打包扩展加载
 
-1. Open Chrome and go to `chrome://extensions`
-2. Enable Developer mode
-3. Click Load unpacked
-4. Select the repository root directory: `D:\Documents\time_reminder`
+1. 打开 Chrome，进入 `chrome://extensions`
+2. 开启右上角的开发者模式
+3. 点击“加载已解压的扩展程序”
+4. 选择仓库根目录：`D:\Documents\time_reminder`
 
-The manifest points directly at the files under `src/`, so no build step is required for local use.
+当前仓库无需构建步骤，`manifest.json` 直接指向 `src/` 下的扩展文件。
 
-## Settings
+## 主要设置项
 
-- Work minutes
-- Short break minutes
-- Long break minutes
-- Long break cadence
-- Reminder auto-close seconds
-- Break countdown seconds
-- Snooze options
-- Reminder title and body
+- 专注时长
+- 短休息时长
+- 长休息时长
+- 长休息频率
+- 提醒页自动关闭时间
+- 休息倒计时长度
+- 延后选项
+- 提醒标题和提醒内容
 
-## Scripts
+## 脚本
 
-- `npm test` - run the Vitest suite
-- `npm run build` - prints a note that the extension can be loaded unpacked from the repo root
+- `npm test`：运行 Vitest 测试
+- `npm run build`：输出“从仓库根目录直接加载”的说明
 
-## File layout
+## 目录说明
 
-- `src/background/service-worker.js` - runtime orchestration
-- `src/shared/*` - constants, validation, storage, and timer logic
-- `src/options/*` - settings page
-- `src/popup/*` - status popup
-- `src/notification/*` - reminder page
+- `src/background/service-worker.js`：后台调度、通知和提醒窗口管理
+- `src/shared/*`：共享常量、校验、存储和计时逻辑
+- `src/options/*`：设置页
+- `src/popup/*`：工具栏弹出页
+- `src/notification/*`：提醒页
+- `src/assets/icons/*`：扩展图标资源

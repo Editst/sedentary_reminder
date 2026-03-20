@@ -60,7 +60,7 @@ function sendMessage(message) {
       }
 
       if (!response?.ok) {
-        reject(new Error(response?.error || "Unknown error"));
+        reject(new Error(response?.error || "未知错误"));
         return;
       }
 
@@ -69,9 +69,12 @@ function sendMessage(message) {
   });
 }
 
-async function loadStatus() {
-  const snapshot = await sendMessage({ type: MESSAGE_TYPES.getStatus });
-  setStatus(`当前状态：${snapshot.modeLabel}，剩余 ${Math.ceil(snapshot.remainingMs / 1000)} 秒。`);
+function formatStatus(snapshot) {
+  if (!snapshot.enabled) {
+    return "提醒已关闭，后台不会继续调度通知和提醒页。";
+  }
+
+  return `当前状态：${snapshot.modeLabel}，剩余约 ${Math.ceil(snapshot.remainingMs / 1000)} 秒。`;
 }
 
 async function init() {
@@ -79,18 +82,19 @@ async function init() {
   try {
     const snapshot = await sendMessage({ type: MESSAGE_TYPES.getStatus });
     populateForm(snapshot.settings);
-    setStatus(`已加载当前设置。状态：${snapshot.modeLabel}`);
+    setStatus(formatStatus(snapshot));
   } catch (error) {
-    setStatus(`无法加载当前状态：${error.message}`);
+    setStatus(`读取当前状态失败：${error.message}`);
   }
 }
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  setStatus("正在保存设置...");
   try {
     const snapshot = await sendMessage({ type: MESSAGE_TYPES.saveSettings, settings: serializeForm() });
     populateForm(snapshot.settings);
-    setStatus("设置已保存并立即生效。");
+    setStatus(snapshot.enabled ? "设置已保存，并已立即应用。" : "设置已保存，提醒已关闭。");
   } catch (error) {
     setStatus(`保存失败：${error.message}`);
   }
@@ -98,22 +102,24 @@ form.addEventListener("submit", async (event) => {
 
 document.querySelector("#reset").addEventListener("click", async () => {
   populateForm(DEFAULT_SETTINGS);
+  setStatus("正在恢复默认设置...");
   try {
-    await sendMessage({ type: MESSAGE_TYPES.saveSettings, settings: DEFAULT_SETTINGS });
-    setStatus("已恢复默认设置。");
+    const snapshot = await sendMessage({ type: MESSAGE_TYPES.saveSettings, settings: DEFAULT_SETTINGS });
+    populateForm(snapshot.settings);
+    setStatus(`已恢复默认设置。${formatStatus(snapshot)}`);
   } catch (error) {
-    setStatus(`恢复默认失败：${error.message}`);
+    setStatus(`恢复默认设置失败：${error.message}`);
   }
 });
 
 document.querySelector("#test").addEventListener("click", async () => {
+  setStatus("正在发送测试提醒...");
   try {
-    await sendMessage({ type: MESSAGE_TYPES.testReminder });
-    setStatus("已发送测试提醒。");
+    const snapshot = await sendMessage({ type: MESSAGE_TYPES.testReminder });
+    setStatus(snapshot.reminderVisible ? "测试提醒已打开；如窗口已存在，则已自动聚焦。" : formatStatus(snapshot));
   } catch (error) {
     setStatus(`测试提醒失败：${error.message}`);
   }
 });
 
 await init();
-await loadStatus();
