@@ -1,0 +1,51 @@
+export const STORAGE_KEYS = {
+  settings: "timeReminder.settings",
+  state: "timeReminder.state"
+};
+
+export const MODES = {
+  work: "work",
+  shortBreak: "shortBreak",
+  longBreak: "longBreak",
+  paused: "paused"
+};
+
+export const MESSAGE_TYPES = {
+  getStatus: "GET_STATUS",
+  saveSettings: "SAVE_SETTINGS",
+  pause: "PAUSE",
+  resume: "RESUME",
+  snooze: "SNOOZE",
+  skip: "SKIP",
+  startBreak: "START_BREAK",
+  endBreak: "END_BREAK",
+  testReminder: "TEST_REMINDER"
+};
+
+export const MAIN_ALARM = "time-reminder-main-alarm";
+export const NOTIFICATION_ID = "time-reminder-notification";
+
+export const DEFAULT_SETTINGS = {
+  enabled: true,
+  workMinutes: 45,
+  shortBreakMinutes: 5,
+  longBreakMinutes: 15,
+  longBreakEvery: 4,
+  reminderAutoCloseSeconds: 30,
+  breakCountdownSeconds: 300,
+  snoozeMinutesOptions: [5, 10],
+  reminderTitle: "Time to move",
+  reminderBody: "Stand up, stretch, and drink some water."
+};
+
+export const DEFAULT_STATE = {
+  mode: MODES.work,
+  cycleCount: 0,
+  currentSessionStart: 0,
+  currentSessionEnd: 0,
+  lastReminderAt: 0,
+  snoozedUntil: 0,
+  notificationOpen: false,
+  previousMode: MODES.work,
+  notificationTabId: null
+};

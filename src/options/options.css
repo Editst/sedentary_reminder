@@ -1,0 +1,101 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  --bg: #f5f3ef;
+  --panel: #fffaf1;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --accent: #1f6feb;
+  --accent-strong: #0f4cbe;
+  --border: #e5dccb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at top, #fff 0%, var(--bg) 55%, #efe7d7 100%);
+  color: var(--text);
+}
+
+.page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.panel {
+  width: min(760px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 28px;
+  box-shadow: 0 18px 48px rgba(31, 41, 55, 0.08);
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: 2rem;
+}
+
+.eyebrow,
+.subtle,
+.status {
+  color: var(--muted);
+}
+
+.form {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.form label {
+  display: grid;
+  gap: 8px;
+}
+
+.form input,
+.form textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: #fff;
+  color: inherit;
+}
+
+.form input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  justify-self: start;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.actions button {
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 18px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#save {
+  background: var(--accent);
+  color: white;
+}
+
+#reset,
+#test {
+  background: #eaeef7;
+  color: var(--text);
+}

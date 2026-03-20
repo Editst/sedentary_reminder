@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Time Reminder</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="card">
+        <p class="eyebrow">Time Reminder</p>
+        <h1 id="mode">状态加载中</h1>
+        <p id="detail" class="detail">正在读取当前提醒状态。</p>
+        <div class="meter">
+          <span id="remaining">--</span>
+          <small>剩余时间</small>
+        </div>
+        <div class="actions">
+          <button id="pause">暂停</button>
+          <button id="resume">恢复</button>
+          <button id="test">测试提醒</button>
+          <button id="open-options">打开设置</button>
+        </div>
+        <p id="status" class="status" aria-live="polite"></p>
+      </section>
+    </main>
+    <script type="module" src="./popup.js"></script>
+  </body>
+</html>

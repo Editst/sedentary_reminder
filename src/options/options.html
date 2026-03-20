@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Time Reminder - Options</title>
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="panel">
+        <header class="hero">
+          <p class="eyebrow">Time Reminder</p>
+          <h1>提醒设置</h1>
+          <p class="subtle">配置工作时长、休息时长、自动关闭和提醒文案。</p>
+        </header>
+
+        <form id="settings-form" class="form">
+          <label>
+            <span>启用提醒</span>
+            <input id="enabled" type="checkbox" />
+          </label>
+          <label>
+            <span>工作时长（分钟）</span>
+            <input id="workMinutes" type="number" min="1" max="240" />
+          </label>
+          <label>
+            <span>短休息（分钟）</span>
+            <input id="shortBreakMinutes" type="number" min="1" max="60" />
+          </label>
+          <label>
+            <span>长休息（分钟）</span>
+            <input id="longBreakMinutes" type="number" min="1" max="120" />
+          </label>
+          <label>
+            <span>每几次短休息后进入长休息</span>
+            <input id="longBreakEvery" type="number" min="1" max="12" />
+          </label>
+          <label>
+            <span>提醒页自动关闭（秒）</span>
+            <input id="reminderAutoCloseSeconds" type="number" min="5" max="300" />
+          </label>
+          <label>
+            <span>休息倒计时（秒）</span>
+            <input id="breakCountdownSeconds" type="number" min="10" max="7200" />
+          </label>
+          <label>
+            <span>延后选项（逗号分隔）</span>
+            <input id="snoozeMinutesOptions" type="text" placeholder="5,10" />
+          </label>
+          <label>
+            <span>提醒标题</span>
+            <input id="reminderTitle" type="text" maxlength="80" />
+          </label>
+          <label>
+            <span>提醒内容</span>
+            <textarea id="reminderBody" rows="4" maxlength="200"></textarea>
+          </label>
+
+          <div class="actions">
+            <button id="save" type="submit">保存设置</button>
+            <button id="reset" type="button">恢复默认</button>
+            <button id="test" type="button">测试提醒</button>
+          </div>
+        </form>
+
+        <p id="status" class="status" aria-live="polite"></p>
+      </section>
+    </main>
+    <script type="module" src="./options.js"></script>
+  </body>
+</html>

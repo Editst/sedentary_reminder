@@ -1,0 +1,81 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  --bg: #101828;
+  --panel: rgba(255, 255, 255, 0.08);
+  --text: #f9fafb;
+  --muted: #cbd5e1;
+  --accent: #38bdf8;
+  --border: rgba(255, 255, 255, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: radial-gradient(circle at top, #1f2937 0%, var(--bg) 60%, #020617 100%);
+  color: var(--text);
+}
+
+.shell {
+  padding: 16px;
+}
+
+.card {
+  width: 320px;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 18px;
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+}
+
+.eyebrow,
+.detail,
+.status,
+small {
+  color: var(--muted);
+}
+
+h1 {
+  margin: 8px 0 0;
+  font-size: 1.4rem;
+}
+
+.meter {
+  margin: 18px 0;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+#remaining {
+  display: block;
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.actions {
+  display: grid;
+  gap: 10px;
+}
+
+.actions button {
+  border: 0;
+  border-radius: 999px;
+  padding: 11px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#pause,
+#resume,
+#test,
+#open-options {
+  background: #e2e8f0;
+  color: #0f172a;
+}

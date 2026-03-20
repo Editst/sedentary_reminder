@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Time Reminder - Reminder</title>
+    <link rel="stylesheet" href="./notification.css" />
+  </head>
+  <body>
+    <main class="frame">
+      <section class="reminder">
+        <p class="eyebrow">Time Reminder</p>
+        <h1 id="title">提醒</h1>
+        <p id="message" class="message">正在准备提醒内容。</p>
+        <div class="countdown">
+          <span id="countdown">00:00</span>
+          <small>自动关闭倒计时</small>
+        </div>
+        <div class="actions">
+          <button id="start-break">开始休息</button>
+          <button id="snooze-5">延后 5 分钟</button>
+          <button id="snooze-10">延后 10 分钟</button>
+          <button id="skip">跳过</button>
+        </div>
+        <p id="status" class="status" aria-live="polite"></p>
+      </section>
+    </main>
+    <script type="module" src="./notification.js"></script>
+  </body>
+</html>
