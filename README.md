@@ -27,23 +27,19 @@
 - 定时能力：`chrome.alarms`
 - 配置存储：`chrome.storage.sync`
 - 运行状态：`chrome.storage.local`
-- 测试：`Vitest`
+- 测试：Node 24 原生 `node:test`
 
 ## 本地使用
 
-### 1. 安装依赖
-
-```bash
-npm install
-```
-
-### 2. 运行测试
+### 1. 运行测试
 
 ```bash
 npm test
 ```
 
-### 3. 以开发者模式加载扩展
+当前项目测试已迁移到 Node 24 原生测试能力，不依赖额外测试包。
+
+### 2. 以开发者模式加载扩展
 
 1. 打开 Chrome，进入 `chrome://extensions`
 2. 打开右上角 `开发者模式`
@@ -64,7 +60,7 @@ time_reminder/
 │  ├─ popup/           # 状态弹窗
 │  ├─ notification/    # 提醒页
 │  └─ assets/icons/    # 扩展图标
-└─ tests/              # Vitest 测试
+└─ tests/              # Node 24 原生测试
 ```
 
 ## 已完成的发布前打磨

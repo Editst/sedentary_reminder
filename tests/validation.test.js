@@ -1,31 +1,30 @@
-import { describe, expect, it } from "vitest";
+import assert from "node:assert/strict";
+import test from "node:test";
 import { DEFAULT_SETTINGS } from "../src/shared/constants.js";
 import { normalizeSettings } from "../src/shared/validation.js";
 
-describe("settings validation", () => {
-  it("returns defaults for empty input", () => {
-    expect(normalizeSettings()).toEqual(DEFAULT_SETTINGS);
+test("returns defaults for empty input", () => {
+  assert.deepEqual(normalizeSettings(), DEFAULT_SETTINGS);
+});
+
+test("clamps invalid numeric values", () => {
+  const result = normalizeSettings({
+    workMinutes: -10,
+    shortBreakMinutes: 999,
+    reminderAutoCloseSeconds: 1,
+    breakCountdownSeconds: "bad"
   });
 
-  it("clamps invalid numeric values", () => {
-    const result = normalizeSettings({
-      workMinutes: -10,
-      shortBreakMinutes: 999,
-      reminderAutoCloseSeconds: 1,
-      breakCountdownSeconds: "bad"
-    });
+  assert.equal(result.workMinutes, DEFAULT_SETTINGS.workMinutes);
+  assert.equal(result.shortBreakMinutes, 60);
+  assert.equal(result.reminderAutoCloseSeconds, 5);
+  assert.equal(result.breakCountdownSeconds, DEFAULT_SETTINGS.breakCountdownSeconds);
+});
 
-    expect(result.workMinutes).toBe(DEFAULT_SETTINGS.workMinutes);
-    expect(result.shortBreakMinutes).toBe(60);
-    expect(result.reminderAutoCloseSeconds).toBe(5);
-    expect(result.breakCountdownSeconds).toBe(DEFAULT_SETTINGS.breakCountdownSeconds);
+test("keeps only valid snooze options", () => {
+  const result = normalizeSettings({
+    snoozeMinutesOptions: [0, "5", 61, 10]
   });
 
-  it("keeps only valid snooze options", () => {
-    const result = normalizeSettings({
-      snoozeMinutesOptions: [0, "5", 61, 10]
-    });
-
-    expect(result.snoozeMinutesOptions).toEqual([5, 10]);
-  });
+  assert.deepEqual(result.snoozeMinutesOptions, [5, 10]);
 });

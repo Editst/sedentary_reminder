@@ -4,11 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "node --test",
     "build": "echo \"Load this extension as unpacked from the repository root.\""
-  },
-  "devDependencies": {
-    "vitest": "^3.2.4"
   }
 }
