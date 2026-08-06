@@ -247,15 +247,19 @@ async function closeReminderTab(tabId) {
 }
 
 async function createSystemNotification(settings, title, message) {
-  await globalThis.chrome.notifications.clear(NOTIFICATION_ID);
-  await globalThis.chrome.notifications.create(NOTIFICATION_ID, {
-    type: "basic",
-    iconUrl: ICON_URL,
-    title,
-    message,
-    priority: 2,
-    requireInteraction: true
-  });
+  try {
+    await globalThis.chrome.notifications.clear(NOTIFICATION_ID);
+    await globalThis.chrome.notifications.create(NOTIFICATION_ID, {
+      type: "basic",
+      iconUrl: ICON_URL,
+      title,
+      message,
+      priority: 2,
+      requireInteraction: true
+    });
+  } catch (error) {
+    console.warn("[createSystemNotification] chrome.notifications failed:", error);
+  }
 }
 
 function applySettingsToState(state, settings) {
@@ -321,9 +325,7 @@ async function disableRuntime(state, settings) {
   return buildStatus(nextState, settings);
 }
 
-function reconcileRuntime({ openDueReminder = false } = {}) {
-  return withStateLock(async () => {
-  const now = Date.now();
+async function _reconcileRuntimeInner(now, { openDueReminder = false } = {}) {
   const snapshot = await loadSnapshot(now);
   let { state, settings } = snapshot;
 
@@ -375,163 +377,166 @@ function reconcileRuntime({ openDueReminder = false } = {}) {
 
   await scheduleMainAlarm(target);
   return buildStatus(state, settings, now);
-  });
+}
+
+function reconcileRuntime({ openDueReminder = false } = {}) {
+  return withStateLock(() => _reconcileRuntimeInner(Date.now(), { openDueReminder }));
 }
 
 function handleSaveSettings(payload) {
   return withStateLock(async () => {
-  const settings = await writeSettings(payload);
-  const snapshot = await loadSnapshot(Date.now());
-  if (!settings.enabled) {
-    return disableRuntime(snapshot.state, settings);
-  }
+    const settings = await writeSettings(payload);
+    const snapshot = await loadSnapshot(Date.now());
+    if (!settings.enabled) {
+      return disableRuntime(snapshot.state, settings);
+    }
 
-  const state = applySettingsToState(snapshot.state, settings);
-  await writeState(state);
-  return reconcileRuntime({ openDueReminder: true });
+    const state = applySettingsToState(snapshot.state, settings);
+    await writeState(state);
+    return _reconcileRuntimeInner(Date.now(), { openDueReminder: true });
   });
 }
 
 function handlePause() {
   return withStateLock(async () => {
-  const now = Date.now();
-  const snapshot = await loadSnapshot(now);
-  if (!snapshot.settings.enabled) {
-    return disableRuntime(snapshot.state, snapshot.settings);
-  }
+    const now = Date.now();
+    const snapshot = await loadSnapshot(now);
+    if (!snapshot.settings.enabled) {
+      return disableRuntime(snapshot.state, snapshot.settings);
+    }
 
-  const remainingMs = getRemainingMs(snapshot.state, now);
-  const nextState = pauseState(snapshot.state);
-  nextState.pausedRemainingMs = remainingMs;
-  nextState.notificationOpen = false;
-  nextState.notificationTabId = null;
-  nextState.reminderKind = null;
-  await writeState(nextState);
-  await closeReminderTab(snapshot.state.notificationTabId);
-  await globalThis.chrome.alarms.clear(MAIN_ALARM);
-  return buildStatus(nextState, snapshot.settings, now);
+    const remainingMs = getRemainingMs(snapshot.state, now);
+    const nextState = pauseState(snapshot.state);
+    nextState.pausedRemainingMs = remainingMs;
+    nextState.notificationOpen = false;
+    nextState.notificationTabId = null;
+    nextState.reminderKind = null;
+    await writeState(nextState);
+    await closeReminderTab(snapshot.state.notificationTabId);
+    await globalThis.chrome.alarms.clear(MAIN_ALARM);
+    return buildStatus(nextState, snapshot.settings, now);
   });
 }
 
 function handleResume() {
   return withStateLock(async () => {
-  const now = Date.now();
-  const snapshot = await loadSnapshot(now);
-  if (!snapshot.settings.enabled) {
-    return disableRuntime(snapshot.state, snapshot.settings);
-  }
+    const now = Date.now();
+    const snapshot = await loadSnapshot(now);
+    if (!snapshot.settings.enabled) {
+      return disableRuntime(snapshot.state, snapshot.settings);
+    }
 
-  const nextState = resumeState(snapshot.state);
+    const nextState = resumeState(snapshot.state);
 
-  if (typeof snapshot.state.pausedRemainingMs === "number" && snapshot.state.pausedRemainingMs > 0) {
-    nextState.currentSessionEnd = now + snapshot.state.pausedRemainingMs;
-  }
+    if (typeof snapshot.state.pausedRemainingMs === "number" && snapshot.state.pausedRemainingMs > 0) {
+      nextState.currentSessionEnd = now + snapshot.state.pausedRemainingMs;
+    }
 
-  nextState.preserveSessionEnd = true;
-  await writeState(nextState);
-  return reconcileRuntime({ openDueReminder: true });
+    nextState.preserveSessionEnd = true;
+    await writeState(nextState);
+    return _reconcileRuntimeInner(now, { openDueReminder: true });
   });
 }
 
 function handleSnooze(minutes) {
   return withStateLock(async () => {
-  const now = Date.now();
-  const snapshot = await loadSnapshot(now);
-  if (!snapshot.settings.enabled) {
-    return disableRuntime(snapshot.state, snapshot.settings);
-  }
+    const now = Date.now();
+    const snapshot = await loadSnapshot(now);
+    if (!snapshot.settings.enabled) {
+      return disableRuntime(snapshot.state, snapshot.settings);
+    }
 
-  const nextState = applySnooze(clearResumeLock(snapshot.state), minutes, now);
-  nextState.notificationOpen = false;
-  nextState.notificationTabId = null;
-  nextState.reminderKind = null;
-  await writeState(nextState);
-  await closeReminderTab(snapshot.state.notificationTabId);
-  await scheduleMainAlarm(nextState.snoozedUntil);
-  return buildStatus(nextState, snapshot.settings, now);
+    const nextState = applySnooze(clearResumeLock(snapshot.state), minutes, now);
+    nextState.notificationOpen = false;
+    nextState.notificationTabId = null;
+    nextState.reminderKind = null;
+    await writeState(nextState);
+    await closeReminderTab(snapshot.state.notificationTabId);
+    await scheduleMainAlarm(nextState.snoozedUntil);
+    return buildStatus(nextState, snapshot.settings, now);
   });
 }
 
 function handleStartBreak() {
   return withStateLock(async () => {
-  const now = Date.now();
-  const snapshot = await loadSnapshot(now);
-  if (!snapshot.settings.enabled) {
-    return disableRuntime(snapshot.state, snapshot.settings);
-  }
+    const now = Date.now();
+    const snapshot = await loadSnapshot(now);
+    if (!snapshot.settings.enabled) {
+      return disableRuntime(snapshot.state, snapshot.settings);
+    }
 
-  const status = buildStatus(snapshot.state, snapshot.settings, now);
-  if (!status.canStartBreak) {
-    return status;
-  }
+    const status = buildStatus(snapshot.state, snapshot.settings, now);
+    if (!status.canStartBreak) {
+      return status;
+    }
 
-  const nextState = clearResumeLock(createNextBreakState(snapshot.state, snapshot.settings, now));
-  nextState.notificationOpen = false;
-  nextState.notificationTabId = null;
-  nextState.reminderKind = null;
-  await writeState(nextState);
-  await closeReminderTab(snapshot.state.notificationTabId);
-  await scheduleMainAlarm(nextState.currentSessionEnd);
-  return buildStatus(nextState, snapshot.settings, now);
+    const nextState = clearResumeLock(createNextBreakState(snapshot.state, snapshot.settings, now));
+    nextState.notificationOpen = false;
+    nextState.notificationTabId = null;
+    nextState.reminderKind = null;
+    await writeState(nextState);
+    await closeReminderTab(snapshot.state.notificationTabId);
+    await scheduleMainAlarm(nextState.currentSessionEnd);
+    return buildStatus(nextState, snapshot.settings, now);
   });
 }
 
 function handleEndBreak() {
   return withStateLock(async () => {
-  const now = Date.now();
-  const snapshot = await loadSnapshot(now);
-  if (!snapshot.settings.enabled) {
-    return disableRuntime(snapshot.state, snapshot.settings);
-  }
+    const now = Date.now();
+    const snapshot = await loadSnapshot(now);
+    if (!snapshot.settings.enabled) {
+      return disableRuntime(snapshot.state, snapshot.settings);
+    }
 
-  const status = buildStatus(snapshot.state, snapshot.settings, now);
-  if (!status.canEndBreak) {
-    return status;
-  }
+    const status = buildStatus(snapshot.state, snapshot.settings, now);
+    if (!status.canEndBreak) {
+      return status;
+    }
 
-  const nextState = clearResumeLock(createNextWorkState(snapshot.state, snapshot.settings, now));
-  nextState.notificationOpen = false;
-  nextState.notificationTabId = null;
-  nextState.reminderKind = null;
-  await writeState(nextState);
-  await closeReminderTab(snapshot.state.notificationTabId);
-  await scheduleMainAlarm(nextState.currentSessionEnd);
-  return buildStatus(nextState, snapshot.settings, now);
+    const nextState = clearResumeLock(createNextWorkState(snapshot.state, snapshot.settings, now));
+    nextState.notificationOpen = false;
+    nextState.notificationTabId = null;
+    nextState.reminderKind = null;
+    await writeState(nextState);
+    await closeReminderTab(snapshot.state.notificationTabId);
+    await scheduleMainAlarm(nextState.currentSessionEnd);
+    return buildStatus(nextState, snapshot.settings, now);
   });
 }
 
 function handleSkip() {
   return withStateLock(async () => {
-  const now = Date.now();
-  const snapshot = await loadSnapshot(now);
-  if (!snapshot.settings.enabled) {
-    return disableRuntime(snapshot.state, snapshot.settings);
-  }
+    const now = Date.now();
+    const snapshot = await loadSnapshot(now);
+    if (!snapshot.settings.enabled) {
+      return disableRuntime(snapshot.state, snapshot.settings);
+    }
 
-  const nextState = {
-    ...clearResumeLock(snapshot.state),
-    lastReminderAt: now,
-    notificationOpen: false,
-    notificationTabId: null,
-    reminderKind: null
-  };
-  await writeState(nextState);
-  await closeReminderTab(snapshot.state.notificationTabId);
-  await scheduleMainAlarm(now + snapshot.settings.breakCountdownSeconds * 1000);
-  return buildStatus(nextState, snapshot.settings, now);
+    const nextState = {
+      ...clearResumeLock(createNextWorkState(snapshot.state, snapshot.settings, now)),
+      lastReminderAt: now,
+      notificationOpen: false,
+      notificationTabId: null,
+      reminderKind: null
+    };
+    await writeState(nextState);
+    await closeReminderTab(snapshot.state.notificationTabId);
+    await scheduleMainAlarm(nextState.currentSessionEnd);
+    return buildStatus(nextState, snapshot.settings, now);
   });
 }
 
 function handleTestReminder() {
   return withStateLock(async () => {
-  const now = Date.now();
-  const snapshot = await loadSnapshot(now);
-  if (!snapshot.settings.enabled) {
-    return disableRuntime(snapshot.state, snapshot.settings);
-  }
+    const now = Date.now();
+    const snapshot = await loadSnapshot(now);
+    if (!snapshot.settings.enabled) {
+      return disableRuntime(snapshot.state, snapshot.settings);
+    }
 
-  const nextState = await showTestReminder(snapshot.state, snapshot.settings, now);
-  return buildStatus(nextState, snapshot.settings, now);
+    const nextState = await showTestReminder(snapshot.state, snapshot.settings, now);
+    return buildStatus(nextState, snapshot.settings, now);
   });
 }
 
@@ -585,7 +590,7 @@ globalThis.chrome.notifications.onClicked.addListener((notificationId) => {
 });
 
 globalThis.chrome.tabs.onRemoved.addListener((tabId) => {
-  void (async () => {
+  void withStateLock(async () => {
     const snapshot = await loadSnapshot();
     if (snapshot.state.notificationTabId !== tabId) {
       return;
@@ -598,7 +603,7 @@ globalThis.chrome.tabs.onRemoved.addListener((tabId) => {
       reminderKind: null
     };
     await writeState(nextState);
-  })();
+  });
 });
 
 globalThis.chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

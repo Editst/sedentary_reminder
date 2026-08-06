@@ -63,8 +63,6 @@ export function normalizeState(input = {}, now = Date.now(), settings = DEFAULT_
   }
 
   const normalized = {
-    ...DEFAULT_STATE,
-    ...raw,
     mode,
     previousMode,
     cycleCount: clampInteger(raw.cycleCount, 0, 999, DEFAULT_STATE.cycleCount),
@@ -76,8 +74,13 @@ export function normalizeState(input = {}, now = Date.now(), settings = DEFAULT_
     notificationTabId:
       raw.notificationTabId === null || raw.notificationTabId === undefined
         ? null
-        : toOptionalInteger(raw.notificationTabId)
+        : toOptionalInteger(raw.notificationTabId),
+    reminderKind: raw.reminderKind === "due" || raw.reminderKind === "test" ? raw.reminderKind : null
   };
+
+  if (Boolean(raw.preserveSessionEnd)) {
+    normalized.preserveSessionEnd = true;
+  }
 
   if (typeof raw.pausedRemainingMs !== "undefined") {
     const pausedRemainingMs = Math.max(0, toFiniteNumber(raw.pausedRemainingMs, 0));

@@ -154,21 +154,29 @@ function renderSnapshot(snapshot) {
 }
 
 async function syncSnapshot() {
-  const snapshot = await sendMessage({ type: MESSAGE_TYPES.getStatus });
-  renderSnapshot(snapshot);
+  try {
+    const snapshot = await sendMessage({ type: MESSAGE_TYPES.getStatus });
+    renderSnapshot(snapshot);
+  } catch (error) {
+    statusEl.textContent = `同步状态失败：${error instanceof Error ? error.message : String(error)}`;
+  }
 }
 
 async function act(type, extra = {}) {
   statusEl.textContent = "正在处理你的操作...";
-  await sendMessage({ type, ...extra });
-  clearTimers();
-  window.close();
+  try {
+    await sendMessage({ type, ...extra });
+    clearTimers();
+    window.close();
+  } catch (error) {
+    statusEl.textContent = `操作失败：${error instanceof Error ? error.message : String(error)}`;
+  }
 }
 
-primaryActionButton.addEventListener("click", () => act(primaryAction));
-snooze5Button.addEventListener("click", () => act(MESSAGE_TYPES.snooze, { minutes: 5 }));
-snooze10Button.addEventListener("click", () => act(MESSAGE_TYPES.snooze, { minutes: 10 }));
-skipButton.addEventListener("click", () => act(MESSAGE_TYPES.skip));
+primaryActionButton.addEventListener("click", () => void act(primaryAction));
+snooze5Button.addEventListener("click", () => void act(MESSAGE_TYPES.snooze, { minutes: 5 }));
+snooze10Button.addEventListener("click", () => void act(MESSAGE_TYPES.snooze, { minutes: 10 }));
+skipButton.addEventListener("click", () => void act(MESSAGE_TYPES.skip));
 window.addEventListener("beforeunload", clearTimers);
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
@@ -176,5 +184,8 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-await syncSnapshot();
-syncTimer = window.setInterval(syncSnapshot, 5000);
+void syncSnapshot();
+syncTimer = window.setInterval(() => {
+  void syncSnapshot();
+}, 5000);
+

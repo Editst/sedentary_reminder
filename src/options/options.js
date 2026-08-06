@@ -122,4 +122,4 @@ document.querySelector("#test").addEventListener("click", async () => {
   }
 });
 
-await init();
+void init();

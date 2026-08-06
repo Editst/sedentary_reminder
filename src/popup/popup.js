@@ -58,30 +58,51 @@ function render(snapshot) {
 }
 
 async function refresh() {
-  const snapshot = await sendMessage({ type: MESSAGE_TYPES.getStatus });
-  render(snapshot);
+  try {
+    const snapshot = await sendMessage({ type: MESSAGE_TYPES.getStatus });
+    render(snapshot);
+  } catch (error) {
+    statusEl.textContent = `读取状态失败：${error instanceof Error ? error.message : String(error)}`;
+  }
 }
 
 pauseButton.addEventListener("click", async () => {
   statusEl.textContent = "正在暂停提醒...";
-  await sendMessage({ type: MESSAGE_TYPES.pause });
-  await refresh();
+  try {
+    await sendMessage({ type: MESSAGE_TYPES.pause });
+    await refresh();
+  } catch (error) {
+    statusEl.textContent = `暂停失败：${error instanceof Error ? error.message : String(error)}`;
+  }
 });
 
 resumeButton.addEventListener("click", async () => {
   statusEl.textContent = "正在恢复提醒...";
-  await sendMessage({ type: MESSAGE_TYPES.resume });
-  await refresh();
+  try {
+    await sendMessage({ type: MESSAGE_TYPES.resume });
+    await refresh();
+  } catch (error) {
+    statusEl.textContent = `恢复失败：${error instanceof Error ? error.message : String(error)}`;
+  }
 });
 
 testButton.addEventListener("click", async () => {
   statusEl.textContent = "正在打开测试提醒...";
-  await sendMessage({ type: MESSAGE_TYPES.testReminder });
-  await refresh();
+  try {
+    await sendMessage({ type: MESSAGE_TYPES.testReminder });
+    await refresh();
+  } catch (error) {
+    statusEl.textContent = `测试提醒失败：${error instanceof Error ? error.message : String(error)}`;
+  }
 });
 
 optionsButton.addEventListener("click", async () => {
-  await chrome.runtime.openOptionsPage();
+  try {
+    await chrome.runtime.openOptionsPage();
+  } catch (error) {
+    statusEl.textContent = `打开设置页失败：${error instanceof Error ? error.message : String(error)}`;
+  }
 });
 
-await refresh();
+void refresh();
+
