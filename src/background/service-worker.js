@@ -10,9 +10,17 @@ import {
 } from "../shared/timer_engine.js";
 import { loadSnapshot, writeSettings, writeState } from "../shared/storage.js";
 
-const REMINDER_PATH = "src/notification/notification.html";
+let _stateLock = Promise.resolve();
+
+function withStateLock(fn) {
+  const next = _stateLock.then(fn, fn);
+  _stateLock = next.catch(() => {});
+  return next;
+}
+
+const REMINDER_PATH = "notification/notification.html";
 const REMINDER_URL = globalThis.chrome.runtime.getURL(REMINDER_PATH);
-const ICON_URL = globalThis.chrome.runtime.getURL("src/assets/icons/time-reminder-128.png");
+const ICON_URL = globalThis.chrome.runtime.getURL("assets/icons/time-reminder-128.png");
 const REMINDER_KINDS = {
   due: "due",
   test: "test"
@@ -126,15 +134,16 @@ async function focusTab(tab) {
 
   try {
     await globalThis.chrome.tabs.update(tab.id, { active: true });
-  } catch {
+  } catch (error) {
+    console.warn(`[focusTab] chrome.tabs.update failed for tab ${tab.id}:`, error);
     return;
   }
 
   if (tab.windowId != null && tab.windowId >= 0) {
     try {
       await globalThis.chrome.windows.update(tab.windowId, { focused: true });
-    } catch {
-      // Ignore window focus failures.
+    } catch (error) {
+      console.warn(`[focusTab] chrome.windows.update failed for window ${tab.windowId}:`, error);
     }
   }
 }
@@ -162,8 +171,8 @@ async function normalizeReminderTabs(preferredTabId = null) {
 
         try {
           await globalThis.chrome.tabs.remove(tab.id);
-        } catch {
-          // Duplicate tab may already be gone.
+        } catch (error) {
+          console.warn(`[normalizeReminderTabs] chrome.tabs.remove failed for tab ${tab.id}:`, error);
         }
       })
     );
@@ -232,8 +241,8 @@ async function closeReminderTab(tabId) {
 
   try {
     await globalThis.chrome.tabs.remove(tabId);
-  } catch {
-    // The tab may already be closed.
+  } catch (error) {
+    console.warn(`[closeReminderTab] chrome.tabs.remove failed for tab ${tabId}:`, error);
   }
 }
 
@@ -312,7 +321,8 @@ async function disableRuntime(state, settings) {
   return buildStatus(nextState, settings);
 }
 
-async function reconcileRuntime({ openDueReminder = false } = {}) {
+function reconcileRuntime({ openDueReminder = false } = {}) {
+  return withStateLock(async () => {
   const now = Date.now();
   const snapshot = await loadSnapshot(now);
   let { state, settings } = snapshot;
@@ -365,9 +375,11 @@ async function reconcileRuntime({ openDueReminder = false } = {}) {
 
   await scheduleMainAlarm(target);
   return buildStatus(state, settings, now);
+  });
 }
 
-async function handleSaveSettings(payload) {
+function handleSaveSettings(payload) {
+  return withStateLock(async () => {
   const settings = await writeSettings(payload);
   const snapshot = await loadSnapshot(Date.now());
   if (!settings.enabled) {
@@ -377,9 +389,11 @@ async function handleSaveSettings(payload) {
   const state = applySettingsToState(snapshot.state, settings);
   await writeState(state);
   return reconcileRuntime({ openDueReminder: true });
+  });
 }
 
-async function handlePause() {
+function handlePause() {
+  return withStateLock(async () => {
   const now = Date.now();
   const snapshot = await loadSnapshot(now);
   if (!snapshot.settings.enabled) {
@@ -396,9 +410,11 @@ async function handlePause() {
   await closeReminderTab(snapshot.state.notificationTabId);
   await globalThis.chrome.alarms.clear(MAIN_ALARM);
   return buildStatus(nextState, snapshot.settings, now);
+  });
 }
 
-async function handleResume() {
+function handleResume() {
+  return withStateLock(async () => {
   const now = Date.now();
   const snapshot = await loadSnapshot(now);
   if (!snapshot.settings.enabled) {
@@ -414,9 +430,11 @@ async function handleResume() {
   nextState.preserveSessionEnd = true;
   await writeState(nextState);
   return reconcileRuntime({ openDueReminder: true });
+  });
 }
 
-async function handleSnooze(minutes) {
+function handleSnooze(minutes) {
+  return withStateLock(async () => {
   const now = Date.now();
   const snapshot = await loadSnapshot(now);
   if (!snapshot.settings.enabled) {
@@ -431,9 +449,11 @@ async function handleSnooze(minutes) {
   await closeReminderTab(snapshot.state.notificationTabId);
   await scheduleMainAlarm(nextState.snoozedUntil);
   return buildStatus(nextState, snapshot.settings, now);
+  });
 }
 
-async function handleStartBreak() {
+function handleStartBreak() {
+  return withStateLock(async () => {
   const now = Date.now();
   const snapshot = await loadSnapshot(now);
   if (!snapshot.settings.enabled) {
@@ -453,9 +473,11 @@ async function handleStartBreak() {
   await closeReminderTab(snapshot.state.notificationTabId);
   await scheduleMainAlarm(nextState.currentSessionEnd);
   return buildStatus(nextState, snapshot.settings, now);
+  });
 }
 
-async function handleEndBreak() {
+function handleEndBreak() {
+  return withStateLock(async () => {
   const now = Date.now();
   const snapshot = await loadSnapshot(now);
   if (!snapshot.settings.enabled) {
@@ -475,9 +497,11 @@ async function handleEndBreak() {
   await closeReminderTab(snapshot.state.notificationTabId);
   await scheduleMainAlarm(nextState.currentSessionEnd);
   return buildStatus(nextState, snapshot.settings, now);
+  });
 }
 
-async function handleSkip() {
+function handleSkip() {
+  return withStateLock(async () => {
   const now = Date.now();
   const snapshot = await loadSnapshot(now);
   if (!snapshot.settings.enabled) {
@@ -495,9 +519,11 @@ async function handleSkip() {
   await closeReminderTab(snapshot.state.notificationTabId);
   await scheduleMainAlarm(now + snapshot.settings.breakCountdownSeconds * 1000);
   return buildStatus(nextState, snapshot.settings, now);
+  });
 }
 
-async function handleTestReminder() {
+function handleTestReminder() {
+  return withStateLock(async () => {
   const now = Date.now();
   const snapshot = await loadSnapshot(now);
   if (!snapshot.settings.enabled) {
@@ -506,6 +532,7 @@ async function handleTestReminder() {
 
   const nextState = await showTestReminder(snapshot.state, snapshot.settings, now);
   return buildStatus(nextState, snapshot.settings, now);
+  });
 }
 
 async function handleMessage(message) {
