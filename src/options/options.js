@@ -57,7 +57,7 @@ function serializeForm() {
     longBreakEvery: Number(elements.longBreakEvery.value),
     reminderAutoCloseSeconds: Number(elements.reminderAutoCloseSeconds.value),
     snoozeMinutesOptions: elements.snoozeMinutesOptions.value
-      .split(",")
+      .split(/[,，\s]+/)
       .map((item) => Number.parseInt(item.trim(), 10))
       .filter((item) => Number.isInteger(item)),
     reminderTitle: elements.reminderTitle.value,

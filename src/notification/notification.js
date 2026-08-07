@@ -15,31 +15,29 @@ const skipButton = document.querySelector("#skip");
 let countdownTimer = null;
 let syncTimer = null;
 let closeTimer = null;
-let remainingSeconds = 0;
 let initialSeconds = 0;
+let countdownEndMs = 0;
 let primaryAction = MESSAGE_TYPES.skip;
 let countdownStarted = false;
 
 function renderCountdown() {
-  const safeSeconds = Math.max(0, remainingSeconds);
+  const now = Date.now();
+  const safeSeconds = Math.max(0, Math.ceil((countdownEndMs - now) / 1000));
   const ratio = initialSeconds > 0 ? safeSeconds / initialSeconds : 0;
   countdownEl.textContent = formatSeconds(safeSeconds);
   countdownCopyEl.textContent = `当前提醒页将在 ${safeSeconds} 秒后自动关闭。`;
   progressEl.style.transform = `scaleX(${Math.max(0, Math.min(1, ratio))})`;
 
-  if (remainingSeconds <= 0) {
+  if (safeSeconds <= 0) {
     statusEl.textContent = "倒计时结束，提醒页即将关闭。";
     clearTimers();
     window.close();
-    return;
   }
-
-  remainingSeconds -= 1;
 }
 
 function startCountdown(seconds) {
   initialSeconds = Math.max(1, seconds);
-  remainingSeconds = Math.max(0, seconds);
+  countdownEndMs = Date.now() + initialSeconds * 1000;
   countdownStarted = true;
   renderCountdown();
 
@@ -55,7 +53,7 @@ function startCountdown(seconds) {
   closeTimer = window.setTimeout(() => {
     clearTimers();
     window.close();
-  }, seconds * 1000);
+  }, initialSeconds * 1000);
 }
 
 function clearTimers() {

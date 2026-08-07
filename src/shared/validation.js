@@ -48,15 +48,23 @@ function normalizeScheduleDays(days, fallback = [1, 2, 3, 4, 5]) {
   return deduplicated.length > 0 ? deduplicated : fallback;
 }
 
+function parseRawSnoozeOptions(input) {
+  if (Array.isArray(input)) {
+    return input;
+  }
+  if (typeof input === "string") {
+    return input.split(/[,，\s]+/).filter(Boolean);
+  }
+  return [];
+}
+
 export function normalizeSettings(input = {}) {
   const merged = {
     ...DEFAULT_SETTINGS,
     ...input
   };
 
-  const rawSnooze = Array.isArray(merged.snoozeMinutesOptions)
-    ? merged.snoozeMinutesOptions
-    : [];
+  const rawSnooze = parseRawSnoozeOptions(merged.snoozeMinutesOptions);
 
   const validSnooze = rawSnooze
     .map((value) => normalizeSnoozeOption(value, 1, 60))

@@ -44,6 +44,18 @@ test("deduplicates, sorts, and filters snooze options", () => {
   assert.deepEqual(result.snoozeMinutesOptions, [5, 10, 15]);
 });
 
+test("supports string snooze options with Chinese commas and whitespace delimiters", () => {
+  const result1 = normalizeSettings({
+    snoozeMinutesOptions: "10，5， 15"
+  });
+  assert.deepEqual(result1.snoozeMinutesOptions, [5, 10, 15]);
+
+  const result2 = normalizeSettings({
+    snoozeMinutesOptions: "5 10 20"
+  });
+  assert.deepEqual(result2.snoozeMinutesOptions, [5, 10, 20]);
+});
+
 test("falls back to default snooze options when all provided options are invalid", () => {
   const result = normalizeSettings({
     snoozeMinutesOptions: [0, 999, -5]

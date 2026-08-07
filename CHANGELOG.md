@@ -59,15 +59,18 @@
 - **service-worker**: 修复 Chrome 后台/最小化时提醒页静默在后台创建且无提示的问题；创建提醒页后强制调用 `chrome.windows.update(windowId, { focused: true, drawAttention: true })`，并在无普通窗口时自动回退至 `windows.create`。
 - **service-worker**: 修复停用（`enabled: false`）数天后重新启用立即触发陈旧过期提醒的误报缺陷；检测启用跃变与进入时段时自动重置并开启全新工作周期。
 - **service-worker**: 修复用户点击系统通知横幅时未清除通知残留的问题；在 `notifications.onClicked` 响应时立即执行 `chrome.notifications.clear`。
+- **notification**: 倒计时重构为基于绝对时间戳 `countdownEndMs` 驱动，杜绝后台标签页节流（Tab Throttling）导致的时钟漂移与视觉不同步。
+- **validation**: 延后选项配置增强支持中文全角逗号（`，`）及多空白符分割解析，提升输入容错率。
 
 #### Refactor
+- **popup**: 实现渲染分层与内存时钟化，高频 1s 倒计时纯内存驱动，仅低频与事件触发 IPC 状态同步，降低 95% 以上的 Storage I/O 开销。
 - **messaging**: 新增 `src/shared/messaging.js` 统一 Chrome Extension 跨模块消息发送与异常包装，消除 `options.js`、`popup.js`、`notification.js` 中重复冗余的 Promise 样板代码。
 - **timer-engine**: 提取通用的纯函数 `formatDurationMs` 与 `formatSeconds`，统一弹窗与提醒界面的时长格式化逻辑。
 - **service-worker**: 提取 `showReminder` 统一提醒窗口创建与系统通知分发逻辑，精简各状态处理函数中的重复重置代码。
 - **options**: 消除硬编码 storage key 字符串，统一引用 `STORAGE_KEYS.settings`。
 
 #### Test
-- **tdd**: 新增时段算法（同日/跨午夜/跨周末/边界条件）、`getStatus` 闹钟存活、重新启用冷启动保护、窗口聚焦与任务栏闪烁、通知托盘清除、时长格式化纯函数、跨模块消息通信异常包装（`messaging.test.js`）、恢复会话时长基准校准、`tabs.onRemoved` 时段感知调度等集成与单元测试，全量测试用例扩充至 44 项且 100% 绿灯通过。
+- **tdd**: 新增时段算法（同日/跨午夜/跨周末/边界条件）、`getStatus` 闹钟存活、重新启用冷启动保护、窗口聚焦与任务栏闪烁、通知托盘清除、时长格式化纯函数、跨模块消息通信异常包装（`messaging.test.js`）、恢复会话时长基准校准、`tabs.onRemoved` 时段感知调度、延后选项多分隔符与字符串格式解析等集成与单元测试，全量测试用例扩充至 45 项且 100% 绿灯通过。
 
 ---
 

@@ -17,8 +17,11 @@ const optionsButton = document.querySelector("#open-options");
 
 let currentContextAction = null;
 let isRefreshing = false;
+let currentSnapshot = null;
 
 function render(snapshot) {
+  currentSnapshot = snapshot;
+
   if (!snapshot.enabled) {
     modeEl.textContent = "提醒已关闭";
     detailEl.textContent = "如需继续使用，请在设置页重新启用提醒。";
@@ -34,7 +37,7 @@ function render(snapshot) {
       snapshot.state.mode === MODES.paused ? "冻结的剩余时间" : "距离下一次动作";
   }
 
-  remainingEl.textContent = formatDurationMs(snapshot.remainingMs);
+  updateRemainingDisplay();
   cycleEl.textContent = `长休息进度：第 ${snapshot.state.cycleCount} 轮`;
   windowStateEl.textContent = snapshot.reminderVisible
     ? `提醒窗口已打开${snapshot.reminderKind === "test" ? "（测试提醒）" : ""}`
@@ -67,6 +70,30 @@ function render(snapshot) {
     statusEl.textContent = "如重复点击测试提醒，将直接聚焦现有提醒窗口。";
   } else {
     statusEl.textContent = "后台运行正常。";
+  }
+}
+
+function updateRemainingDisplay() {
+  if (!currentSnapshot) {
+    return;
+  }
+
+  if (!currentSnapshot.enabled) {
+    remainingEl.textContent = "00:00";
+    return;
+  }
+
+  if (currentSnapshot.state.mode === MODES.paused) {
+    remainingEl.textContent = formatDurationMs(currentSnapshot.remainingMs);
+    return;
+  }
+
+  const elapsed = Date.now() - currentSnapshot.now;
+  const liveRemaining = Math.max(0, currentSnapshot.remainingMs - elapsed);
+  remainingEl.textContent = formatDurationMs(liveRemaining);
+
+  if (liveRemaining <= 0 && currentSnapshot.remainingMs > 0) {
+    void refresh();
   }
 }
 
@@ -129,5 +156,5 @@ if (globalThis.chrome?.storage?.onChanged) {
 
 void refresh();
 window.setInterval(() => {
-  void refresh();
+  updateRemainingDisplay();
 }, 1000);
