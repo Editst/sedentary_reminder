@@ -1,4 +1,4 @@
-import { MAIN_ALARM, MESSAGE_TYPES, MODES, NOTIFICATION_ID } from "../shared/constants.js";
+import { MAIN_ALARM, MESSAGE_TYPES, MODES, NOTIFICATION_ID, REMINDER_KINDS } from "../shared/constants.js";
 import {
   applySnooze,
   createInitialState,
@@ -24,10 +24,6 @@ function withStateLock(fn) {
 const REMINDER_PATH = "notification/notification.html";
 const REMINDER_URL = globalThis.chrome.runtime.getURL(REMINDER_PATH);
 const ICON_URL = globalThis.chrome.runtime.getURL("assets/icons/time-reminder-128.png");
-const REMINDER_KINDS = {
-  due: "due",
-  test: "test"
-};
 
 const MODE_LABELS = {
   [MODES.work]: "专注工作",
@@ -531,8 +527,20 @@ function handleResume() {
     const nextState = resumeState(snapshot.state);
     nextState.snoozedUntil = 0;
 
+    const effectiveMode = nextState.mode;
+    const modeDuration =
+      effectiveMode === MODES.shortBreak
+        ? snapshot.settings.shortBreakMinutes * 60 * 1000
+        : effectiveMode === MODES.longBreak
+          ? snapshot.settings.longBreakMinutes * 60 * 1000
+          : snapshot.settings.workMinutes * 60 * 1000;
+
     if (typeof snapshot.state.pausedRemainingMs === "number" && snapshot.state.pausedRemainingMs > 0) {
       nextState.currentSessionEnd = now + snapshot.state.pausedRemainingMs;
+      nextState.currentSessionStart = nextState.currentSessionEnd - modeDuration;
+    } else {
+      nextState.currentSessionStart = now;
+      nextState.currentSessionEnd = now + modeDuration;
     }
 
     nextState.preserveSessionEnd = true;
@@ -708,10 +716,17 @@ globalThis.chrome.tabs.onRemoved.addListener((tabId) => {
       return;
     }
 
+    const inSchedule = isWithinSchedule(snapshot.settings, now);
     const wasDue = snapshot.state.reminderKind === REMINDER_KINDS.due;
     const nextState = resetRuntimeState(snapshot.state);
 
-    if (wasDue && isSessionDue(nextState, now)) {
+    if (!inSchedule) {
+      const nextScheduleStart = getNextScheduleStartTime(snapshot.settings, now);
+      await scheduleMainAlarm(nextScheduleStart);
+      if (nextState.mode !== MODES.paused) {
+        Object.assign(nextState, createInitialState(nextScheduleStart, snapshot.settings));
+      }
+    } else if (wasDue && isSessionDue(nextState, now)) {
       const fallbackMinutes = snapshot.settings.snoozeMinutesOptions?.[0] || 5;
       nextState.snoozedUntil = now + fallbackMinutes * 60 * 1000;
       await scheduleMainAlarm(nextState.snoozedUntil);

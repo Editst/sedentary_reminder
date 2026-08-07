@@ -7,7 +7,8 @@ import {
   MESSAGE_TYPES,
   STORAGE_KEYS,
   MAIN_ALARM,
-  NOTIFICATION_ID
+  NOTIFICATION_ID,
+  REMINDER_KINDS
 } from "../src/shared/constants.js";
 
 // --- Mock infrastructure ---
@@ -561,5 +562,58 @@ describe("withStateLock deadlock prevention", () => {
     await sendMessage({ type: MESSAGE_TYPES.pause });
     const res = await sendMessage({ type: MESSAGE_TYPES.resume });
     assert.equal(res.ok, true, `resume should succeed, got: ${JSON.stringify(res)}`);
+  });
+
+  it("resume should align currentSessionStart accurately with remaining duration", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    syncStore[STORAGE_KEYS.settings] = { ...DEFAULT_SETTINGS, workMinutes: 45 };
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.paused,
+      previousMode: MODES.work,
+      pausedRemainingMs: 15 * 60 * 1000 // 15 mins remaining
+    };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.resume });
+    assert.equal(res.ok, true);
+
+    const state = localStore[STORAGE_KEYS.state];
+    assert.equal(state.mode, MODES.work);
+    // Total duration should equal workMinutes (45 mins)
+    const span = state.currentSessionEnd - state.currentSessionStart;
+    assert.equal(span, 45 * 60 * 1000, "session span must match work duration (45 mins)");
+  });
+});
+
+// ------------------------------------------------------------------
+// #16 tabs.onRemoved 在非生效时段的处理
+// ------------------------------------------------------------------
+
+describe("tabs.onRemoved out-of-schedule behavior", () => {
+  it("should schedule next window alarm and enter initial state when closed outside schedule", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    syncStore[STORAGE_KEYS.settings] = {
+      ...DEFAULT_SETTINGS,
+      scheduleEnabled: true,
+      scheduleStartTime: "00:00",
+      scheduleEndTime: "00:01", // Only 00:00-00:01 active, rest of day inactive
+      scheduleDays: [0, 1, 2, 3, 4, 5, 6]
+    };
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      notificationOpen: true,
+      notificationTabId: 9999,
+      reminderKind: REMINDER_KINDS.due
+    };
+
+    await captured.onTabRemoved(9999);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const state = localStore[STORAGE_KEYS.state];
+    assert.equal(state.notificationOpen, false);
+    assert.equal(state.notificationTabId, null);
+    // Alarm should be scheduled for the next active schedule start
+    assert.ok(captured.alarmsCreated.length > 0);
   });
 });

@@ -43,4 +43,10 @@ describe("normalizeState", () => {
     assert.equal(state.preserveSessionEnd, true);
     assert.equal(state.pausedRemainingMs, 50000);
   });
+
+  it("should handle null or undefined settings gracefully without throwing", () => {
+    const state = normalizeState({}, 1000, null);
+    assert.equal(state.mode, MODES.work);
+    assert.ok(state.currentSessionEnd > 1000);
+  });
 });

@@ -37,17 +37,18 @@ function normalizeMode(value, fallback = DEFAULT_STATE.mode) {
 }
 
 function getDurationForMode(mode, settings, previousMode) {
+  const effectiveSettings = settings ?? DEFAULT_SETTINGS;
   const effectiveMode = mode === MODES.paused ? previousMode : mode;
 
   if (effectiveMode === MODES.shortBreak) {
-    return settings.shortBreakMinutes * 60 * 1000;
+    return effectiveSettings.shortBreakMinutes * 60 * 1000;
   }
 
   if (effectiveMode === MODES.longBreak) {
-    return settings.longBreakMinutes * 60 * 1000;
+    return effectiveSettings.longBreakMinutes * 60 * 1000;
   }
 
-  return settings.workMinutes * 60 * 1000;
+  return effectiveSettings.workMinutes * 60 * 1000;
 }
 
 export function normalizeState(input = {}, now = Date.now(), settings = DEFAULT_SETTINGS) {

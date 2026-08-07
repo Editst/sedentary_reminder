@@ -25,6 +25,11 @@ export const MESSAGE_TYPES = {
 export const MAIN_ALARM = "time-reminder-main-alarm";
 export const NOTIFICATION_ID = "time-reminder-notification";
 
+export const REMINDER_KINDS = {
+  due: "due",
+  test: "test"
+};
+
 export const DEFAULT_SETTINGS = {
   enabled: true,
   workMinutes: 45,
