@@ -51,3 +51,27 @@ test("falls back to default snooze options when all provided options are invalid
 
   assert.deepEqual(result.snoozeMinutesOptions, DEFAULT_SETTINGS.snoozeMinutesOptions);
 });
+
+test("validates and normalizes schedule settings", () => {
+  const valid = normalizeSettings({
+    scheduleEnabled: true,
+    scheduleStartTime: "08:30",
+    scheduleEndTime: "17:45",
+    scheduleDays: [5, 1, 3, 1, 99, -1, "2"]
+  });
+
+  assert.equal(valid.scheduleEnabled, true);
+  assert.equal(valid.scheduleStartTime, "08:30");
+  assert.equal(valid.scheduleEndTime, "17:45");
+  assert.deepEqual(valid.scheduleDays, [1, 2, 3, 5], "should filter, deduplicate, and sort days");
+
+  const invalid = normalizeSettings({
+    scheduleStartTime: "25:99",
+    scheduleEndTime: "invalid",
+    scheduleDays: "not-an-array"
+  });
+
+  assert.equal(invalid.scheduleStartTime, DEFAULT_SETTINGS.scheduleStartTime);
+  assert.equal(invalid.scheduleEndTime, DEFAULT_SETTINGS.scheduleEndTime);
+  assert.deepEqual(invalid.scheduleDays, DEFAULT_SETTINGS.scheduleDays);
+});

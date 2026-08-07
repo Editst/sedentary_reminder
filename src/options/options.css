@@ -80,6 +80,72 @@ body {
   background: rgba(255, 255, 255, 0.55);
 }
 
+.schedule-section {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 18px 20px;
+  background: rgba(255, 255, 255, 0.45);
+  display: grid;
+  gap: 14px;
+  margin: 0;
+}
+
+.schedule-section legend {
+  padding: 0 8px;
+  color: var(--text);
+}
+
+.schedule-details {
+  display: grid;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.days-group {
+  display: grid;
+  gap: 8px;
+}
+
+.days-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.days-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.day-chip {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 14px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.day-chip input[type="checkbox"] {
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0;
+  cursor: pointer;
+}
+
+.day-chip:has(input:checked) {
+  background: var(--secondary);
+  border-color: rgba(31, 111, 235, 0.4);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
 .form input,
 .form textarea {
   width: 100%;
@@ -88,6 +154,7 @@ body {
   padding: 12px 14px;
   background: #fff;
   color: inherit;
+  font-size: 0.95rem;
 }
 
 .form input:focus,
@@ -114,6 +181,11 @@ body {
   padding: 12px 18px;
   font-weight: 700;
   cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.actions button:hover {
+  opacity: 0.9;
 }
 
 #save {

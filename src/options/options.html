@@ -12,7 +12,7 @@
         <header class="hero">
           <p class="eyebrow">久坐提醒</p>
           <h1>提醒与休息设置</h1>
-          <p class="subtle">在这里统一配置专注时长、休息节奏、提醒文案和提醒页关闭时间。</p>
+          <p class="subtle">在这里统一配置专注时长、休息节奏、生效时段、提醒文案和提醒页关闭时间。</p>
         </header>
 
         <form id="settings-form" class="form">
@@ -23,6 +23,43 @@
             </span>
             <input id="enabled" type="checkbox" />
           </label>
+
+          <fieldset class="schedule-section">
+            <legend><strong>生效时间范围</strong></legend>
+            <label class="toggle-row schedule-toggle">
+              <span>
+                <strong>启用时段限制</strong>
+                <small>开启后仅在指定时段与星期内提醒；非生效时段静默休眠。</small>
+              </span>
+              <input id="scheduleEnabled" type="checkbox" />
+            </label>
+
+            <div id="schedule-details" class="schedule-details">
+              <div class="grid two-columns">
+                <label>
+                  <span>开始时间</span>
+                  <input id="scheduleStartTime" type="time" />
+                </label>
+                <label>
+                  <span>结束时间</span>
+                  <input id="scheduleEndTime" type="time" />
+                </label>
+              </div>
+
+              <div class="days-group">
+                <span class="days-label">生效星期</span>
+                <div class="days-checkboxes">
+                  <label class="day-chip"><input type="checkbox" name="scheduleDay" value="1" /><span>周一</span></label>
+                  <label class="day-chip"><input type="checkbox" name="scheduleDay" value="2" /><span>周二</span></label>
+                  <label class="day-chip"><input type="checkbox" name="scheduleDay" value="3" /><span>周三</span></label>
+                  <label class="day-chip"><input type="checkbox" name="scheduleDay" value="4" /><span>周四</span></label>
+                  <label class="day-chip"><input type="checkbox" name="scheduleDay" value="5" /><span>周五</span></label>
+                  <label class="day-chip"><input type="checkbox" name="scheduleDay" value="6" /><span>周六</span></label>
+                  <label class="day-chip"><input type="checkbox" name="scheduleDay" value="0" /><span>周日</span></label>
+                </div>
+              </div>
+            </div>
+          </fieldset>
 
           <div class="grid two-columns">
             <label>

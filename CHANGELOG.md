@@ -1,10 +1,79 @@
-# Changelog
+# 演进规划与版本变更 (Roadmap & Changelog)
 
-All notable changes to this project will be documented in this file.
+本文档汇总项目的阶段演进路线图（Roadmap）以及详细的版本变更历史（Changelog）。
 
-## [1.3.0] - 2026-08-08
+---
 
-### Fix
+## 路线规划 (Roadmap)
+
+### 阶段一：稳定性与并发安全加固（已完成 - v1.1.0）
+- [x] Promise 链状态锁并发序列化（`withStateLock`）
+- [x] 消除嵌套锁自死锁与事件竞争
+- [x] 修正跳过提醒的状态重置与完整工作周期调度逻辑
+- [x] 顶层异步安全包装与异常防护
+- [x] 建立 TDD 测试套件覆盖核心状态流转与边界条件
+
+### 阶段二：生命周期闭环与交互体验对齐（已完成 - v1.3.0）
+- [x] 修复提醒页关闭后 Alarm 丢失导致定时器永久假死缺陷（5 分钟兜底延后调度）
+- [x] 修复测试提醒关闭误清空工作进度的缺陷
+- [x] 休息倒计时到期后发送系统通知提醒
+- [x] Action Badge 实时状态与剩余时间提示（工作倒计时/休息/暂停/到期/关闭）
+- [x] Popup 状态弹窗情境快捷操作（提前结束休息、立即开始休息）
+- [x] 清理冗余配置项 `breakCountdownSeconds`，统一输入校验语义与去重排序
+- [x] 扩充 TDD 测试用例至 26 项且 100% 覆盖关键流转
+
+### 阶段三：生效时段调度与生命周期全路径根治（已完成 - v1.4.0）
+- [x] 生效时间范围（工作日/自定义时段调度）纯函数引擎与跨午夜/跨周末算法
+- [x] 处于非生效时段时定时器静默休眠与精准瞄准唤醒（Badge `ZZZ`）
+- [x] 彻底根治工作到期时 `getStatus` 导致的 Alarm 丢失与静默死锁
+- [x] 提醒页创建前台窗口聚焦与 Windows 任务栏闪烁（`drawAttention: true`）
+- [x] 停用数天后重新启用时的冷启动状态初始化保护
+- [x] 系统通知横幅点击自动清理通知托盘残留
+- [x] 页面级 `chrome.storage.onChanged` 0 延时即时响应
+- [x] 扩充 TDD 测试套件至 35 项
+
+### 阶段四：用户体验与提醒形式增强（规划中）
+- [ ] 支持可选的轻量级音频提示音（Web Audio API 纯音频合成）
+- [ ] 休息倒计时全屏遮罩模式（可选配置）
+- [ ] 每日/每周久坐统计数据看板与数据本地导出
+
+### 阶段五：跨平台与多端同步（未来演进）
+- [ ] 国际化多语言支持（`chrome.i18n`）
+- [ ] 多套节奏预设（番茄钟 25/5、深度工作 50/10 等）
+
+---
+
+## 版本变更历史 (Changelog)
+
+### [1.4.0] - 2026-08-08
+
+#### Feat
+- **schedule**: 增加生效时间范围（`scheduleEnabled`, `scheduleStartTime`, `scheduleEndTime`, `scheduleDays`）配置与纯函数调度算法，支持同日与跨午夜时段判定及星期多选。
+- **service-worker**: 处于非生效时段时自动进入静默休眠，精准计算下次生效时间戳并调度 `MAIN_ALARM` 自动唤醒，零 CPU 轮询消耗；Action Badge 显示 `ZZZ`。
+- **options**: 设置页增加“生效时间范围”配置卡片，支持起止时间选择器与周一至周日交互式胶囊多选芯片，并与 `scheduleEnabled` 联动折叠展示。
+- **popup**: 增加非生效时段状态展示与下次生效倒计时提醒；时间格式化支持大于 60 分钟时的标准 `HH:MM:SS` 格式。
+- **reactivity**: `options.js`、`popup.js`、`notification.js` 全面接入 `chrome.storage.onChanged` 监听，实现跨页面/多窗口状态变更的 0 延时即时响应。
+
+#### Fix
+- **service-worker**: 修复工作到期（`due`）时调用 `getStatus`（如打开 Popup 弹窗）误清除 `MAIN_ALARM` 导致关闭弹窗后定时器永久假死（Alarm Void）的 P0 级严重缺陷；确保在无前台提醒页时自动保留/调度 60 秒重试 Alarm。
+- **service-worker**: 修复 Chrome 后台/最小化时提醒页静默在后台创建且无提示的问题；创建提醒页后强制调用 `chrome.windows.update(windowId, { focused: true, drawAttention: true })`，并在无普通窗口时自动回退至 `windows.create`。
+- **service-worker**: 修复停用（`enabled: false`）数天后重新启用立即触发陈旧过期提醒的误报缺陷；检测启用跃变与进入时段时自动重置并开启全新工作周期。
+- **service-worker**: 修复用户点击系统通知横幅时未清除通知残留的问题；在 `notifications.onClicked` 响应时立即执行 `chrome.notifications.clear`。
+
+#### Refactor
+- **messaging**: 新增 `src/shared/messaging.js` 统一 Chrome Extension 跨模块消息发送与异常包装，消除 `options.js`、`popup.js`、`notification.js` 中重复冗余的 Promise 样板代码。
+- **timer-engine**: 提取通用的纯函数 `formatDurationMs` 与 `formatSeconds`，统一弹窗与提醒界面的时长格式化逻辑。
+- **service-worker**: 提取 `showReminder` 统一提醒窗口创建与系统通知分发逻辑，精简各状态处理函数中的重复重置代码。
+- **options**: 消除硬编码 storage key 字符串，统一引用 `STORAGE_KEYS.settings`。
+
+#### Test
+- **tdd**: 新增时段算法（同日/跨午夜/跨周末/边界条件）、`getStatus` 闹钟存活、重新启用冷启动保护、窗口聚焦与任务栏闪烁、通知托盘清除、时长格式化纯函数、跨模块消息通信异常包装（`messaging.test.js`）等多项集成与单元测试，全量测试用例扩充至 41 项且 100% 绿灯通过。
+
+---
+
+### [1.3.0] - 2026-08-08
+
+#### Fix
 - **service-worker**: 修复测试提醒关闭时误调 `skip` 导致进行中的工作会话进度被强制清零的问题；测试提醒关闭后原工作会话起止时间与进度保持完整。
 - **service-worker**: 修复提醒页关闭（用户关闭或30秒超时自动关闭）后未调度 Alarm 导致定时器永久假死（Silent Death）的高危缺陷；未操作即关闭时自动安排 5 分钟兜底延后 Alarm。
 - **service-worker**: 修复休息倒计时到期后静默切换无通知感知的问题；休息到期时触发“休息结束”系统通知。
@@ -12,18 +81,20 @@ All notable changes to this project will be documented in this file.
 - **options**: 移除未生效的冗余配置项 `breakCountdownSeconds`，保持界面配置与运行时完全对齐。
 - **notification**: 增加渲染缓存 key，避免每 5 秒状态轮询时重复销毁与重建动态贪睡按钮 DOM 节点。
 
-### Feat
+#### Feat
 - **badge**: 接入 `chrome.action.setBadgeText` 与 `setBadgeBackgroundColor`，根据运行模式实时展示工作剩余分钟（如 `25m`）、休息状态（`5m`）、暂停标记（`||`）、到期标记（`!`）或关闭状态（`OFF`）。
 - **popup**: 增加情境操作按钮（`#context-action`），处于休息模式时支持“结束休息，返回工作”，工作到期且提醒页关闭时支持“立即开始休息”。
 - **validation**: 增强 `snoozeMinutesOptions` 配置处理，自动执行去重（Deduplication）与升序排序（Ascending Sort），防止重复配置导致多余按钮。
 
-### Test
+#### Test
 - **tdd**: 新增 4 项核心集成测试（测试提醒无损关闭、提醒页关闭兜底 Alarm 调度、休息结束通知与流转、Action Badge 状态同步），全量测试用例扩充至 26 项且 100% 绿灯通过。
 
-## [1.2.0] - 2026-08-07
+---
 
-### Fix
-- **service-worker**: 修正 `canEndBreak` / `canStartBreak` / `canSnooze` 判定条件，不再依赖 `notificationOpen`。修复用户无法从 popup 手动结束休息、关闭提醒页后无法开始休息的 CRITICAL 级缺陷。
+### [1.2.0] - 2026-08-07
+
+#### Fix
+- **service-worker**: 修正 `canEndBreak` / `canStartBreak` / `canSnooze` 判定条件，不再依赖 `notificationOpen`。修复用户无法从 popup 手动结束休息、关闭提醒页后无法开始休息的缺陷。
 - **service-worker**: 删除模块顶层 `void bootstrapRuntime()`，仅保留 `onInstalled` / `onStartup` 事件入口。消除 Worker 唤醒时与 `onAlarm` 事件的双重 reconcile 导致的重复系统通知。
 - **service-worker**: `handlePause` 与 `handleResume` 中清零 `snoozedUntil`，修复贪睡后暂停再恢复时闹钟在旧贪睡时间点提前触发的问题。
 - **service-worker**: `handleSaveSettings` 调用 `clearResumeLock` 清除 `preserveSessionEnd`，修复恢复后修改设置不生效的问题。
@@ -31,22 +102,24 @@ All notable changes to this project will be documented in this file.
 - **service-worker**: 所有事件监听器增加 `.catch()` 异常兜底；`onMessage` 的 `catch` 块中 `sendResponse` 外层增加 try/catch 防止端口断开时的二次异常。
 - **notification**: 倒计时归零时调用 `clearTimers()` 再 `window.close()`，修复遗留 interval 泄漏。
 
-### Feat
+#### Feat
 - **notification**: 贪睡按钮改为根据用户设置的 `snoozeMinutesOptions` 动态渲染，不再硬编码 5/10 分钟。
 - **popup**: 增加 `setInterval(refresh, 1000)` 每秒刷新，剩余时间实时倒计。
 - **notification**: 进度条增加 `transition: transform 1s linear` CSS 过渡，倒计时平滑动画。
 
-### Refactor
+#### Refactor
 - **service-worker**: 删除无引用的 `bootstrapRuntime` 函数。
 - **manifest**: `options_page` 迁移至 MV3 推荐的 `options_ui` 声明。
-- **notification**: HTML 中硬编码贪睡按钮替换为 `#snooze-actions` 动态容器，CSS 增加 `.snooze-group` display:contents 布局。
+- **notification**: HTML 中硬编码贪睡按钮替换为 `#snooze-actions` 动态容器，CSS 增加 `.snooze-group` 弹性布局。
 
-### Test
+#### Test
 - **tdd**: 新增 5 项测试用例覆盖 `canEndBreak`/`canStartBreak` 条件判定、`snoozedUntil` 清零、`preserveSessionEnd` 清除、`scheduleMainAlarm` NaN 防护。全量测试用例增至 22 项且全部通过。
 
-## [1.1.0] - 2026-08-06
+---
 
-### Fix
+### [1.1.0] - 2026-08-06
+
+#### Fix
 - **service-worker**: 拆分 `_reconcileRuntimeInner` 解除 `handleSaveSettings` 与 `handleResume` 在 `withStateLock` 中的自嵌套死锁。
 - **service-worker**: 修正 `handleSkip` 调度逻辑，跳过提醒后重置并开启完整工作周期（`workMinutes`），修复误用 `breakCountdownSeconds` 导致频繁弹窗的问题。
 - **service-worker**: 将 `tabs.onRemoved` 状态重置纳入 `withStateLock`，消除多标签并发关闭时的竞态写入。
@@ -55,9 +128,9 @@ All notable changes to this project will be documented in this file.
 - **ui**: 移除 `popup.js`、`notification.js`、`options.js` 顶层裸 `await`，为异步操作增设完整的 try/catch 异常捕获与错误提示。
 - **theme**: 将 `popup.css` 的 `color-scheme` 修正为 `dark`，匹配实际暗色背景主题。
 
-### Refactor
+#### Refactor
 - **manifest**: 将 `manifest.json` 迁移至 `src/` 目录，统一扩展加载源路径为 `src/`。
 - **docs**: 整合原有分散设计文档至 `README.md`，规范化工程架构文档。
 
-### Test
+#### Test
 - **tdd**: 新增 `tests/service-worker.test.js`（并发死锁复现与跳过调度验证）与 `tests/storage.test.js`（状态清洗验证），全量测试用例增至 16 项且全部通过。

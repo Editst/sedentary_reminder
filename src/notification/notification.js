@@ -1,4 +1,6 @@
 import { MESSAGE_TYPES } from "../shared/constants.js";
+import { sendExtensionMessage } from "../shared/messaging.js";
+import { formatSeconds } from "../shared/timer_engine.js";
 
 const titleEl = document.querySelector("#title");
 const messageEl = document.querySelector("#message");
@@ -17,31 +19,6 @@ let remainingSeconds = 0;
 let initialSeconds = 0;
 let primaryAction = MESSAGE_TYPES.skip;
 let countdownStarted = false;
-
-function sendMessage(message) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      const error = chrome.runtime.lastError;
-      if (error) {
-        reject(new Error(error.message));
-        return;
-      }
-
-      if (!response?.ok) {
-        reject(new Error(response?.error || "未知错误"));
-        return;
-      }
-
-      resolve(response.data);
-    });
-  });
-}
-
-function formatSeconds(totalSeconds) {
-  const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
-  const seconds = String(totalSeconds % 60).padStart(2, "0");
-  return `${minutes}:${seconds}`;
-}
 
 function renderCountdown() {
   const safeSeconds = Math.max(0, remainingSeconds);
@@ -75,7 +52,10 @@ function startCountdown(seconds) {
   if (closeTimer) {
     window.clearTimeout(closeTimer);
   }
-  closeTimer = window.setTimeout(() => window.close(), seconds * 1000);
+  closeTimer = window.setTimeout(() => {
+    clearTimers();
+    window.close();
+  }, seconds * 1000);
 }
 
 function clearTimers() {
@@ -177,7 +157,7 @@ function renderSnapshot(snapshot) {
 
 async function syncSnapshot() {
   try {
-    const snapshot = await sendMessage({ type: MESSAGE_TYPES.getStatus });
+    const snapshot = await sendExtensionMessage({ type: MESSAGE_TYPES.getStatus });
     renderSnapshot(snapshot);
   } catch (error) {
     statusEl.textContent = `同步状态失败：${error instanceof Error ? error.message : String(error)}`;
@@ -187,7 +167,7 @@ async function syncSnapshot() {
 async function act(type, extra = {}) {
   statusEl.textContent = "正在处理你的操作...";
   try {
-    await sendMessage({ type, ...extra });
+    await sendExtensionMessage({ type, ...extra });
     clearTimers();
     window.close();
   } catch (error) {
@@ -203,6 +183,12 @@ document.addEventListener("visibilitychange", () => {
     void syncSnapshot();
   }
 });
+
+if (globalThis.chrome?.storage?.onChanged) {
+  globalThis.chrome.storage.onChanged.addListener(() => {
+    void syncSnapshot();
+  });
+}
 
 void syncSnapshot();
 syncTimer = window.setInterval(() => {

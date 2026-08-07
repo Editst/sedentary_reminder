@@ -34,7 +34,11 @@ export const DEFAULT_SETTINGS = {
   reminderAutoCloseSeconds: 30,
   snoozeMinutesOptions: [5, 10],
   reminderTitle: "该起身活动了",
-  reminderBody: "站起来走一走，伸展一下，顺手喝点水。"
+  reminderBody: "站起来走一走，伸展一下，顺手喝点水。",
+  scheduleEnabled: false,
+  scheduleStartTime: "09:00",
+  scheduleEndTime: "18:00",
+  scheduleDays: [1, 2, 3, 4, 5]
 };
 
 export const DEFAULT_STATE = {

@@ -1,10 +1,13 @@
 import { MAIN_ALARM, MESSAGE_TYPES, MODES, NOTIFICATION_ID } from "../shared/constants.js";
 import {
   applySnooze,
+  createInitialState,
   createNextBreakState,
   createNextWorkState,
+  getNextScheduleStartTime,
   getRemainingMs,
   isSessionDue,
+  isWithinSchedule,
   pauseState,
   resumeState
 } from "../shared/timer_engine.js";
@@ -77,6 +80,12 @@ async function updateActionBadge(state, settings, now = Date.now()) {
       return;
     }
 
+    if (!isWithinSchedule(settings, now)) {
+      await globalThis.chrome.action.setBadgeText({ text: "ZZZ" });
+      await globalThis.chrome.action.setBadgeBackgroundColor({ color: "#475569" });
+      return;
+    }
+
     if (state.mode === MODES.paused) {
       await globalThis.chrome.action.setBadgeText({ text: "||" });
       await globalThis.chrome.action.setBadgeBackgroundColor({ color: "#eab308" });
@@ -107,23 +116,34 @@ async function updateActionBadge(state, settings, now = Date.now()) {
 }
 
 function buildStatus(state, settings, now = Date.now()) {
-  const remainingMs = getRemainingMs(state, now);
-  const due = state.mode === MODES.work
+  const inSchedule = isWithinSchedule(settings, now);
+  const nextScheduleStart = inSchedule ? now : getNextScheduleStartTime(settings, now);
+  const remainingMs = inSchedule ? getRemainingMs(state, now) : Math.max(0, nextScheduleStart - now);
+  const due = inSchedule && (state.mode === MODES.work
     ? isSessionDue(state, now)
-    : state.mode !== MODES.paused && state.currentSessionEnd <= now;
+    : state.mode !== MODES.paused && state.currentSessionEnd <= now);
   const effectiveMode = state.mode === MODES.paused ? state.previousMode : state.mode;
   const hasActiveReminder = Boolean(state.notificationOpen && state.notificationTabId != null && state.reminderKind);
   const reminderIsDue = hasActiveReminder && state.reminderKind === REMINDER_KINDS.due;
   const reminderIsTest = hasActiveReminder && state.reminderKind === REMINDER_KINDS.test;
+
+  let currentPhaseLabel = MODE_LABELS[effectiveMode] ?? effectiveMode;
+  if (!inSchedule) {
+    currentPhaseLabel = "当前处于工作时段外";
+  } else if (due && state.mode === MODES.work) {
+    currentPhaseLabel = "提醒已到";
+  }
 
   return {
     now,
     settings,
     state,
     enabled: Boolean(settings.enabled),
+    inSchedule,
+    nextScheduleStart,
     due,
     remainingMs,
-    modeLabel: MODE_LABELS[state.mode] ?? state.mode,
+    modeLabel: inSchedule ? (MODE_LABELS[state.mode] ?? state.mode) : "非生效时段",
     effectiveMode,
     reminderVisible: Boolean(state.notificationOpen),
     reminderKind: state.reminderKind ?? null,
@@ -131,12 +151,12 @@ function buildStatus(state, settings, now = Date.now()) {
     reminderTitle: getReminderTitle(state, settings),
     reminderMessage: getReminderMessage(state, settings),
     autoCloseSeconds: settings.reminderAutoCloseSeconds,
-    currentPhaseLabel: due && state.mode === MODES.work ? "提醒已到" : MODE_LABELS[effectiveMode] ?? effectiveMode,
-    canPause: state.mode !== MODES.paused,
-    canResume: state.mode === MODES.paused,
-    canStartBreak: due && state.mode === MODES.work,
-    canEndBreak: state.mode === MODES.shortBreak || state.mode === MODES.longBreak,
-    canSnooze: due && state.mode === MODES.work,
+    currentPhaseLabel,
+    canPause: inSchedule && state.mode !== MODES.paused,
+    canResume: inSchedule && state.mode === MODES.paused,
+    canStartBreak: inSchedule && due && state.mode === MODES.work,
+    canEndBreak: inSchedule && (state.mode === MODES.shortBreak || state.mode === MODES.longBreak),
+    canSnooze: inSchedule && due && state.mode === MODES.work,
     canCloseReminder: hasActiveReminder || reminderIsTest
   };
 }
@@ -160,7 +180,7 @@ function clearResumeLock(state) {
 
 async function scheduleMainAlarm(whenMs) {
   await globalThis.chrome.alarms.clear(MAIN_ALARM);
-  if (whenMs == null || !Number.isFinite(whenMs)) {
+  if (whenMs == null || !Number.isFinite(whenMs) || whenMs <= 0) {
     return;
   }
 
@@ -182,7 +202,7 @@ async function focusTab(tab) {
 
   if (tab.windowId != null && tab.windowId >= 0) {
     try {
-      await globalThis.chrome.windows.update(tab.windowId, { focused: true });
+      await globalThis.chrome.windows.update(tab.windowId, { focused: true, drawAttention: true });
     } catch (error) {
       console.warn(`[focusTab] chrome.windows.update failed for window ${tab.windowId}:`, error);
     }
@@ -239,12 +259,7 @@ async function syncReminderWindowState(state) {
   }
 
   if (state.notificationOpen || state.notificationTabId != null) {
-    const nextState = {
-      ...state,
-      notificationOpen: false,
-      notificationTabId: null,
-      reminderKind: null
-    };
+    const nextState = resetRuntimeState(state);
     await writeState(nextState);
     return nextState;
   }
@@ -265,11 +280,27 @@ async function openReminderTab(state) {
     return nextState;
   }
 
-  const tab = await globalThis.chrome.tabs.create({ url: REMINDER_URL, active: true });
+  let tab = null;
+  try {
+    tab = await globalThis.chrome.tabs.create({ url: REMINDER_URL, active: true });
+  } catch (tabError) {
+    console.warn("[openReminderTab] tabs.create failed, attempting windows.create fallback:", tabError);
+    try {
+      const win = await globalThis.chrome.windows.create({ url: REMINDER_URL, focused: true, type: "popup" });
+      tab = win?.tabs?.[0] ?? null;
+    } catch (winError) {
+      console.error("[openReminderTab] windows.create also failed:", winError);
+    }
+  }
+
+  if (tab) {
+    await focusTab(tab);
+  }
+
   const nextState = {
     ...state,
     notificationOpen: true,
-    notificationTabId: tab.id ?? null
+    notificationTabId: tab?.id ?? null
   };
   await writeState(nextState);
   return nextState;
@@ -306,11 +337,7 @@ async function createSystemNotification(settings, title, message) {
 }
 
 function applySettingsToState(state, settings) {
-  if (state.mode === MODES.paused) {
-    return state;
-  }
-
-  if (state.preserveSessionEnd) {
+  if (state.mode === MODES.paused || state.preserveSessionEnd) {
     return state;
   }
 
@@ -334,23 +361,17 @@ function applySettingsToState(state, settings) {
   };
 }
 
-async function showDueReminder(state, settings, now) {
+async function showReminder(state, settings, now, kind) {
   const nextState = {
     ...state,
-    reminderKind: REMINDER_KINDS.due,
+    reminderKind: kind,
     lastReminderAt: now
   };
-  await createSystemNotification(settings, getReminderTitle(nextState, settings), getReminderMessage(nextState, settings));
-  return openReminderTab(nextState);
-}
-
-async function showTestReminder(state, settings, now) {
-  const nextState = {
-    ...state,
-    reminderKind: REMINDER_KINDS.test,
-    lastReminderAt: now
-  };
-  await createSystemNotification(settings, getReminderTitle(nextState, settings), getReminderMessage(nextState, settings));
+  await createSystemNotification(
+    settings,
+    getReminderTitle(nextState, settings),
+    getReminderMessage(nextState, settings)
+  );
   return openReminderTab(nextState);
 }
 
@@ -359,11 +380,7 @@ async function disableRuntime(state, settings) {
   await globalThis.chrome.notifications.clear(NOTIFICATION_ID);
   await closeReminderTab(state.notificationTabId);
 
-  const nextState = clearResumeLock(resetRuntimeState({
-    ...state,
-    snoozedUntil: 0
-  }));
-
+  const nextState = clearResumeLock(resetRuntimeState(state));
   await writeState(nextState);
   await updateActionBadge(nextState, settings);
   return buildStatus(nextState, settings);
@@ -378,6 +395,23 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false } = {}) {
   }
 
   state = await syncReminderWindowState(state);
+
+  const inSchedule = isWithinSchedule(settings, now);
+  if (!inSchedule) {
+    await globalThis.chrome.notifications.clear(NOTIFICATION_ID).catch(() => {});
+    await closeReminderTab(state.notificationTabId);
+
+    const nextScheduleStart = getNextScheduleStartTime(settings, now);
+    await scheduleMainAlarm(nextScheduleStart);
+
+    let nextState = resetRuntimeState(state);
+    if (nextState.mode !== MODES.paused) {
+      nextState = createInitialState(nextScheduleStart, settings);
+    }
+    await writeState(nextState);
+    await updateActionBadge(nextState, settings, now);
+    return buildStatus(nextState, settings, now);
+  }
 
   if (state.mode === MODES.paused) {
     await globalThis.chrome.alarms.clear(MAIN_ALARM);
@@ -410,9 +444,13 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false } = {}) {
   const due = target <= now;
 
   if (due) {
-    await globalThis.chrome.alarms.clear(MAIN_ALARM);
     if (openDueReminder) {
-      state = await showDueReminder(state, settings, now);
+      await globalThis.chrome.alarms.clear(MAIN_ALARM);
+      state = await showReminder(state, settings, now, REMINDER_KINDS.due);
+    } else {
+      if (!state.notificationOpen) {
+        await scheduleMainAlarm(now + 60 * 1000);
+      }
     }
     await updateActionBadge(state, settings, now);
     return buildStatus(state, settings, now);
@@ -438,15 +476,28 @@ function reconcileRuntime({ openDueReminder = false } = {}) {
 
 function handleSaveSettings(payload) {
   return withStateLock(async () => {
+    const now = Date.now();
+    const prevSnapshot = await loadSnapshot(now);
+    const wasEnabled = Boolean(prevSnapshot.settings.enabled);
+    const wasInSchedule = isWithinSchedule(prevSnapshot.settings, now);
+
     const settings = await writeSettings(payload);
-    const snapshot = await loadSnapshot(Date.now());
+    const snapshot = await loadSnapshot(now);
     if (!settings.enabled) {
       return disableRuntime(snapshot.state, settings);
     }
 
-    const state = applySettingsToState(clearResumeLock(snapshot.state), settings);
+    const nowInSchedule = isWithinSchedule(settings, now);
+    let state = snapshot.state;
+
+    if ((!wasEnabled && settings.enabled) || (!wasInSchedule && nowInSchedule)) {
+      state = createInitialState(now, settings);
+    } else {
+      state = applySettingsToState(clearResumeLock(snapshot.state), settings);
+    }
+
     await writeState(state);
-    return _reconcileRuntimeInner(Date.now(), { openDueReminder: true });
+    return _reconcileRuntimeInner(now, { openDueReminder: true });
   });
 }
 
@@ -459,12 +510,8 @@ function handlePause() {
     }
 
     const remainingMs = getRemainingMs(snapshot.state, now);
-    const nextState = pauseState(snapshot.state);
+    const nextState = resetRuntimeState(pauseState(snapshot.state));
     nextState.pausedRemainingMs = remainingMs;
-    nextState.snoozedUntil = 0;
-    nextState.notificationOpen = false;
-    nextState.notificationTabId = null;
-    nextState.reminderKind = null;
     await writeState(nextState);
     await closeReminderTab(snapshot.state.notificationTabId);
     await globalThis.chrome.alarms.clear(MAIN_ALARM);
@@ -502,10 +549,7 @@ function handleSnooze(minutes) {
       return disableRuntime(snapshot.state, snapshot.settings);
     }
 
-    const nextState = applySnooze(clearResumeLock(snapshot.state), minutes, now);
-    nextState.notificationOpen = false;
-    nextState.notificationTabId = null;
-    nextState.reminderKind = null;
+    const nextState = resetRuntimeState(applySnooze(clearResumeLock(snapshot.state), minutes, now));
     await writeState(nextState);
     await closeReminderTab(snapshot.state.notificationTabId);
     await scheduleMainAlarm(nextState.snoozedUntil);
@@ -527,10 +571,7 @@ function handleStartBreak() {
       return status;
     }
 
-    const nextState = clearResumeLock(createNextBreakState(snapshot.state, snapshot.settings, now));
-    nextState.notificationOpen = false;
-    nextState.notificationTabId = null;
-    nextState.reminderKind = null;
+    const nextState = resetRuntimeState(clearResumeLock(createNextBreakState(snapshot.state, snapshot.settings, now)));
     await writeState(nextState);
     await closeReminderTab(snapshot.state.notificationTabId);
     await scheduleMainAlarm(nextState.currentSessionEnd);
@@ -552,10 +593,7 @@ function handleEndBreak() {
       return status;
     }
 
-    const nextState = clearResumeLock(createNextWorkState(snapshot.state, snapshot.settings, now));
-    nextState.notificationOpen = false;
-    nextState.notificationTabId = null;
-    nextState.reminderKind = null;
+    const nextState = resetRuntimeState(clearResumeLock(createNextWorkState(snapshot.state, snapshot.settings, now)));
     await writeState(nextState);
     await closeReminderTab(snapshot.state.notificationTabId);
     await scheduleMainAlarm(nextState.currentSessionEnd);
@@ -573,12 +611,7 @@ function handleSkip() {
     }
 
     if (snapshot.state.reminderKind === REMINDER_KINDS.test) {
-      const nextState = {
-        ...snapshot.state,
-        notificationOpen: false,
-        notificationTabId: null,
-        reminderKind: null
-      };
+      const nextState = resetRuntimeState(snapshot.state);
       await writeState(nextState);
       await closeReminderTab(snapshot.state.notificationTabId);
       const target = nextState.snoozedUntil > now ? nextState.snoozedUntil : nextState.currentSessionEnd;
@@ -587,13 +620,10 @@ function handleSkip() {
       return buildStatus(nextState, snapshot.settings, now);
     }
 
-    const nextState = {
+    const nextState = resetRuntimeState({
       ...clearResumeLock(createNextWorkState(snapshot.state, snapshot.settings, now)),
-      lastReminderAt: now,
-      notificationOpen: false,
-      notificationTabId: null,
-      reminderKind: null
-    };
+      lastReminderAt: now
+    });
     await writeState(nextState);
     await closeReminderTab(snapshot.state.notificationTabId);
     await scheduleMainAlarm(nextState.currentSessionEnd);
@@ -610,7 +640,7 @@ function handleTestReminder() {
       return disableRuntime(snapshot.state, snapshot.settings);
     }
 
-    const nextState = await showTestReminder(snapshot.state, snapshot.settings, now);
+    const nextState = await showReminder(snapshot.state, snapshot.settings, now, REMINDER_KINDS.test);
     await updateActionBadge(nextState, snapshot.settings, now);
     return buildStatus(nextState, snapshot.settings, now);
   });
@@ -663,6 +693,7 @@ globalThis.chrome.alarms.onAlarm.addListener((alarm) => {
 
 globalThis.chrome.notifications.onClicked.addListener((notificationId) => {
   if (notificationId === NOTIFICATION_ID) {
+    void globalThis.chrome.notifications.clear(NOTIFICATION_ID).catch(() => {});
     return reconcileRuntime({ openDueReminder: true }).catch((error) => {
       console.error("[notifications.onClicked] reconcileRuntime failed:", error);
     });
@@ -678,12 +709,7 @@ globalThis.chrome.tabs.onRemoved.addListener((tabId) => {
     }
 
     const wasDue = snapshot.state.reminderKind === REMINDER_KINDS.due;
-    const nextState = {
-      ...snapshot.state,
-      notificationOpen: false,
-      notificationTabId: null,
-      reminderKind: null
-    };
+    const nextState = resetRuntimeState(snapshot.state);
 
     if (wasDue && isSessionDue(nextState, now)) {
       const fallbackMinutes = snapshot.settings.snoozeMinutesOptions?.[0] || 5;

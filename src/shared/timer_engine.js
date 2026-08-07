@@ -71,3 +71,122 @@ export function resumeState(state) {
     mode: state.previousMode || MODES.work
   };
 }
+
+function parseTimeToMinutes(timeStr, fallback = 0) {
+  if (typeof timeStr !== "string") {
+    return fallback;
+  }
+  const parts = timeStr.split(":").map((item) => Number.parseInt(item, 10));
+  if (parts.length !== 2 || Number.isNaN(parts[0]) || Number.isNaN(parts[1])) {
+    return fallback;
+  }
+  return parts[0] * 60 + parts[1];
+}
+
+export function isWithinSchedule(settings, nowMs = Date.now()) {
+  if (!settings?.scheduleEnabled) {
+    return true;
+  }
+
+  const scheduleDays = Array.isArray(settings.scheduleDays) ? settings.scheduleDays : [];
+  if (scheduleDays.length === 0) {
+    return true;
+  }
+
+  const startMinutes = parseTimeToMinutes(settings.scheduleStartTime, 540); // 09:00 default
+  const endMinutes = parseTimeToMinutes(settings.scheduleEndTime, 1080); // 18:00 default
+
+  if (startMinutes === endMinutes) {
+    return true;
+  }
+
+  const date = new Date(nowMs);
+  const currentDay = date.getDay(); // 0-6
+  const currentMinutes = date.getHours() * 60 + date.getMinutes();
+
+  if (startMinutes < endMinutes) {
+    // Same-day window (e.g. 09:00 - 18:00)
+    if (!scheduleDays.includes(currentDay)) {
+      return false;
+    }
+    return currentMinutes >= startMinutes && currentMinutes < endMinutes;
+  }
+
+  // Cross-midnight window (e.g. 22:00 - 06:00)
+  if (currentMinutes >= startMinutes) {
+    // Night half: start day is today
+    return scheduleDays.includes(currentDay);
+  }
+
+  if (currentMinutes < endMinutes) {
+    // Morning half: started yesterday
+    const yesterdayDay = (currentDay + 6) % 7;
+    return scheduleDays.includes(yesterdayDay);
+  }
+
+  return false;
+}
+
+export function getNextScheduleStartTime(settings, nowMs = Date.now()) {
+  if (!settings?.scheduleEnabled || isWithinSchedule(settings, nowMs)) {
+    return nowMs;
+  }
+
+  const scheduleDays = Array.isArray(settings.scheduleDays) ? settings.scheduleDays : [];
+  if (scheduleDays.length === 0) {
+    return nowMs;
+  }
+
+  const startMinutes = parseTimeToMinutes(settings.scheduleStartTime, 540);
+  const startH = Math.floor(startMinutes / 60);
+  const startM = startMinutes % 60;
+
+  const now = new Date(nowMs);
+
+  for (let dayOffset = 0; dayOffset <= 8; dayOffset++) {
+    const candidate = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + dayOffset,
+      startH,
+      startM,
+      0,
+      0
+    );
+
+    const candidateMs = candidate.getTime();
+    if (candidateMs > nowMs) {
+      const candidateDay = candidate.getDay();
+      if (scheduleDays.includes(candidateDay)) {
+        return candidateMs;
+      }
+    }
+  }
+
+  return nowMs + 60 * 1000;
+}
+
+export function formatDurationMs(ms) {
+  const totalSeconds = Math.max(0, Math.ceil(toFiniteNumber(ms, 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+export function formatSeconds(seconds) {
+  const safeSeconds = Math.max(0, Math.floor(toFiniteNumber(seconds, 0)));
+  const minutes = String(Math.floor(safeSeconds / 60)).padStart(2, "0");
+  const secs = String(safeSeconds % 60).padStart(2, "0");
+  return `${minutes}:${secs}`;
+}
+
+function toFiniteNumber(value, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
