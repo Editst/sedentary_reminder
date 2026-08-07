@@ -65,6 +65,47 @@ function getReminderMessage(state, settings) {
   return settings.reminderBody;
 }
 
+async function updateActionBadge(state, settings, now = Date.now()) {
+  if (!globalThis.chrome?.action) {
+    return;
+  }
+
+  try {
+    if (!settings.enabled) {
+      await globalThis.chrome.action.setBadgeText({ text: "OFF" });
+      await globalThis.chrome.action.setBadgeBackgroundColor({ color: "#64748b" });
+      return;
+    }
+
+    if (state.mode === MODES.paused) {
+      await globalThis.chrome.action.setBadgeText({ text: "||" });
+      await globalThis.chrome.action.setBadgeBackgroundColor({ color: "#eab308" });
+      return;
+    }
+
+    if (state.mode === MODES.shortBreak || state.mode === MODES.longBreak) {
+      const remainingMinutes = Math.max(1, Math.ceil(getRemainingMs(state, now) / 60000));
+      await globalThis.chrome.action.setBadgeText({ text: `${remainingMinutes}m` });
+      await globalThis.chrome.action.setBadgeBackgroundColor({ color: "#10b981" });
+      return;
+    }
+
+    const due = isSessionDue(state, now);
+    if (due) {
+      await globalThis.chrome.action.setBadgeText({ text: "!" });
+      await globalThis.chrome.action.setBadgeBackgroundColor({ color: "#ef4444" });
+      return;
+    }
+
+    const remainingMinutes = Math.ceil(getRemainingMs(state, now) / 60000);
+    const badgeText = remainingMinutes > 99 ? "99+" : `${Math.max(1, remainingMinutes)}m`;
+    await globalThis.chrome.action.setBadgeText({ text: badgeText });
+    await globalThis.chrome.action.setBadgeBackgroundColor({ color: "#3b82f6" });
+  } catch (error) {
+    console.warn("[updateActionBadge] failed:", error);
+  }
+}
+
 function buildStatus(state, settings, now = Date.now()) {
   const remainingMs = getRemainingMs(state, now);
   const due = state.mode === MODES.work
@@ -324,6 +365,7 @@ async function disableRuntime(state, settings) {
   }));
 
   await writeState(nextState);
+  await updateActionBadge(nextState, settings);
   return buildStatus(nextState, settings);
 }
 
@@ -339,6 +381,7 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false } = {}) {
 
   if (state.mode === MODES.paused) {
     await globalThis.chrome.alarms.clear(MAIN_ALARM);
+    await updateActionBadge(state, settings, now);
     return buildStatus(state, settings, now);
   }
 
@@ -350,9 +393,15 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false } = {}) {
       state.reminderKind = null;
       await writeState(state);
       await closeReminderTab(snapshot.state.notificationTabId);
+      await createSystemNotification(
+        settings,
+        "休息结束",
+        "休息时间已到，准备好开始新的专注工作了吗？"
+      );
     }
 
     await scheduleMainAlarm(state.currentSessionEnd);
+    await updateActionBadge(state, settings, now);
     return buildStatus(state, settings, now);
   }
 
@@ -365,6 +414,7 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false } = {}) {
     if (openDueReminder) {
       state = await showDueReminder(state, settings, now);
     }
+    await updateActionBadge(state, settings, now);
     return buildStatus(state, settings, now);
   }
 
@@ -378,6 +428,7 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false } = {}) {
   }
 
   await scheduleMainAlarm(target);
+  await updateActionBadge(state, settings, now);
   return buildStatus(state, settings, now);
 }
 
@@ -417,6 +468,7 @@ function handlePause() {
     await writeState(nextState);
     await closeReminderTab(snapshot.state.notificationTabId);
     await globalThis.chrome.alarms.clear(MAIN_ALARM);
+    await updateActionBadge(nextState, snapshot.settings, now);
     return buildStatus(nextState, snapshot.settings, now);
   });
 }
@@ -457,6 +509,7 @@ function handleSnooze(minutes) {
     await writeState(nextState);
     await closeReminderTab(snapshot.state.notificationTabId);
     await scheduleMainAlarm(nextState.snoozedUntil);
+    await updateActionBadge(nextState, snapshot.settings, now);
     return buildStatus(nextState, snapshot.settings, now);
   });
 }
@@ -481,6 +534,7 @@ function handleStartBreak() {
     await writeState(nextState);
     await closeReminderTab(snapshot.state.notificationTabId);
     await scheduleMainAlarm(nextState.currentSessionEnd);
+    await updateActionBadge(nextState, snapshot.settings, now);
     return buildStatus(nextState, snapshot.settings, now);
   });
 }
@@ -505,6 +559,7 @@ function handleEndBreak() {
     await writeState(nextState);
     await closeReminderTab(snapshot.state.notificationTabId);
     await scheduleMainAlarm(nextState.currentSessionEnd);
+    await updateActionBadge(nextState, snapshot.settings, now);
     return buildStatus(nextState, snapshot.settings, now);
   });
 }
@@ -517,6 +572,21 @@ function handleSkip() {
       return disableRuntime(snapshot.state, snapshot.settings);
     }
 
+    if (snapshot.state.reminderKind === REMINDER_KINDS.test) {
+      const nextState = {
+        ...snapshot.state,
+        notificationOpen: false,
+        notificationTabId: null,
+        reminderKind: null
+      };
+      await writeState(nextState);
+      await closeReminderTab(snapshot.state.notificationTabId);
+      const target = nextState.snoozedUntil > now ? nextState.snoozedUntil : nextState.currentSessionEnd;
+      await scheduleMainAlarm(target);
+      await updateActionBadge(nextState, snapshot.settings, now);
+      return buildStatus(nextState, snapshot.settings, now);
+    }
+
     const nextState = {
       ...clearResumeLock(createNextWorkState(snapshot.state, snapshot.settings, now)),
       lastReminderAt: now,
@@ -527,6 +597,7 @@ function handleSkip() {
     await writeState(nextState);
     await closeReminderTab(snapshot.state.notificationTabId);
     await scheduleMainAlarm(nextState.currentSessionEnd);
+    await updateActionBadge(nextState, snapshot.settings, now);
     return buildStatus(nextState, snapshot.settings, now);
   });
 }
@@ -540,6 +611,7 @@ function handleTestReminder() {
     }
 
     const nextState = await showTestReminder(snapshot.state, snapshot.settings, now);
+    await updateActionBadge(nextState, snapshot.settings, now);
     return buildStatus(nextState, snapshot.settings, now);
   });
 }
@@ -569,22 +641,21 @@ async function handleMessage(message) {
   }
 }
 
-
 globalThis.chrome.runtime.onInstalled.addListener(() => {
-  void reconcileRuntime({ openDueReminder: true }).catch((error) => {
+  return reconcileRuntime({ openDueReminder: true }).catch((error) => {
     console.error("[onInstalled] bootstrapRuntime failed:", error);
   });
 });
 
 globalThis.chrome.runtime.onStartup.addListener(() => {
-  void reconcileRuntime({ openDueReminder: true }).catch((error) => {
+  return reconcileRuntime({ openDueReminder: true }).catch((error) => {
     console.error("[onStartup] bootstrapRuntime failed:", error);
   });
 });
 
 globalThis.chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === MAIN_ALARM) {
-    void reconcileRuntime({ openDueReminder: true }).catch((error) => {
+    return reconcileRuntime({ openDueReminder: true }).catch((error) => {
       console.error("[onAlarm] reconcileRuntime failed:", error);
     });
   }
@@ -592,7 +663,7 @@ globalThis.chrome.alarms.onAlarm.addListener((alarm) => {
 
 globalThis.chrome.notifications.onClicked.addListener((notificationId) => {
   if (notificationId === NOTIFICATION_ID) {
-    void reconcileRuntime({ openDueReminder: true }).catch((error) => {
+    return reconcileRuntime({ openDueReminder: true }).catch((error) => {
       console.error("[notifications.onClicked] reconcileRuntime failed:", error);
     });
   }
@@ -600,19 +671,29 @@ globalThis.chrome.notifications.onClicked.addListener((notificationId) => {
 
 globalThis.chrome.tabs.onRemoved.addListener((tabId) => {
   void withStateLock(async () => {
-    const snapshot = await loadSnapshot();
+    const now = Date.now();
+    const snapshot = await loadSnapshot(now);
     if (snapshot.state.notificationTabId !== tabId) {
       return;
     }
 
+    const wasDue = snapshot.state.reminderKind === REMINDER_KINDS.due;
     const nextState = {
       ...snapshot.state,
       notificationOpen: false,
       notificationTabId: null,
       reminderKind: null
     };
+
+    if (wasDue && isSessionDue(nextState, now)) {
+      const fallbackMinutes = snapshot.settings.snoozeMinutesOptions?.[0] || 5;
+      nextState.snoozedUntil = now + fallbackMinutes * 60 * 1000;
+      await scheduleMainAlarm(nextState.snoozedUntil);
+    }
+
     await writeState(nextState);
     await globalThis.chrome.notifications.clear(NOTIFICATION_ID).catch(() => {});
+    await updateActionBadge(nextState, snapshot.settings, now);
   }).catch((error) => {
     console.error("[tabs.onRemoved] state cleanup failed:", error);
   });

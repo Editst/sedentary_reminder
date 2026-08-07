@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-08-08
+
+### Fix
+- **service-worker**: 修复测试提醒关闭时误调 `skip` 导致进行中的工作会话进度被强制清零的问题；测试提醒关闭后原工作会话起止时间与进度保持完整。
+- **service-worker**: 修复提醒页关闭（用户关闭或30秒超时自动关闭）后未调度 Alarm 导致定时器永久假死（Silent Death）的高危缺陷；未操作即关闭时自动安排 5 分钟兜底延后 Alarm。
+- **service-worker**: 修复休息倒计时到期后静默切换无通知感知的问题；休息到期时触发“休息结束”系统通知。
+- **validation**: 统一数值钳位语义，下溢输入（小于 min）统一钳位至 `min`，非法/NaN 输入回退至默认值；修复此前返回 fallback 导致行为分裂的问题。
+- **options**: 移除未生效的冗余配置项 `breakCountdownSeconds`，保持界面配置与运行时完全对齐。
+- **notification**: 增加渲染缓存 key，避免每 5 秒状态轮询时重复销毁与重建动态贪睡按钮 DOM 节点。
+
+### Feat
+- **badge**: 接入 `chrome.action.setBadgeText` 与 `setBadgeBackgroundColor`，根据运行模式实时展示工作剩余分钟（如 `25m`）、休息状态（`5m`）、暂停标记（`||`）、到期标记（`!`）或关闭状态（`OFF`）。
+- **popup**: 增加情境操作按钮（`#context-action`），处于休息模式时支持“结束休息，返回工作”，工作到期且提醒页关闭时支持“立即开始休息”。
+- **validation**: 增强 `snoozeMinutesOptions` 配置处理，自动执行去重（Deduplication）与升序排序（Ascending Sort），防止重复配置导致多余按钮。
+
+### Test
+- **tdd**: 新增 4 项核心集成测试（测试提醒无损关闭、提醒页关闭兜底 Alarm 调度、休息结束通知与流转、Action Badge 状态同步），全量测试用例扩充至 26 项且 100% 绿灯通过。
+
 ## [1.2.0] - 2026-08-07
 
 ### Fix

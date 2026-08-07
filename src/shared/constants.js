@@ -32,7 +32,6 @@ export const DEFAULT_SETTINGS = {
   longBreakMinutes: 15,
   longBreakEvery: 4,
   reminderAutoCloseSeconds: 30,
-  breakCountdownSeconds: 300,
   snoozeMinutesOptions: [5, 10],
   reminderTitle: "该起身活动了",
   reminderBody: "站起来走一走，伸展一下，顺手喝点水。"

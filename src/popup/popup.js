@@ -7,10 +7,13 @@ const remainingLabelEl = document.querySelector("#remaining-label");
 const cycleEl = document.querySelector("#cycle");
 const windowStateEl = document.querySelector("#window-state");
 const statusEl = document.querySelector("#status");
+const contextActionButton = document.querySelector("#context-action");
 const pauseButton = document.querySelector("#pause");
 const resumeButton = document.querySelector("#resume");
 const testButton = document.querySelector("#test");
 const optionsButton = document.querySelector("#open-options");
+
+let currentContextAction = null;
 
 function sendMessage(message) {
   return new Promise((resolve, reject) => {
@@ -49,6 +52,22 @@ function render(snapshot) {
   windowStateEl.textContent = snapshot.reminderVisible
     ? `提醒窗口已打开${snapshot.reminderKind === "test" ? "（测试提醒）" : ""}`
     : "提醒窗口当前未打开";
+
+  if (snapshot.canEndBreak && snapshot.enabled) {
+    contextActionButton.textContent = "结束休息，返回工作";
+    contextActionButton.classList.remove("hidden");
+    contextActionButton.disabled = false;
+    currentContextAction = MESSAGE_TYPES.endBreak;
+  } else if (snapshot.canStartBreak && snapshot.enabled) {
+    contextActionButton.textContent = "立即开始休息";
+    contextActionButton.classList.remove("hidden");
+    contextActionButton.disabled = false;
+    currentContextAction = MESSAGE_TYPES.startBreak;
+  } else {
+    contextActionButton.classList.add("hidden");
+    currentContextAction = null;
+  }
+
   pauseButton.disabled = !snapshot.canPause || !snapshot.enabled;
   resumeButton.disabled = !snapshot.canResume || !snapshot.enabled;
   testButton.disabled = !snapshot.enabled;
@@ -65,6 +84,19 @@ async function refresh() {
     statusEl.textContent = `读取状态失败：${error instanceof Error ? error.message : String(error)}`;
   }
 }
+
+contextActionButton.addEventListener("click", async () => {
+  if (!currentContextAction) {
+    return;
+  }
+  statusEl.textContent = "正在处理操作...";
+  try {
+    await sendMessage({ type: currentContextAction });
+    await refresh();
+  } catch (error) {
+    statusEl.textContent = `操作失败：${error instanceof Error ? error.message : String(error)}`;
+  }
+});
 
 pauseButton.addEventListener("click", async () => {
   statusEl.textContent = "正在暂停提醒...";
@@ -108,4 +140,3 @@ void refresh();
 window.setInterval(() => {
   void refresh();
 }, 1000);
-

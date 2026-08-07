@@ -95,7 +95,14 @@ function clearTimers() {
   }
 }
 
+let currentRenderedSnoozeKey = "";
+
 function renderSnoozeButtons(snoozeOptions, visible) {
+  const newKey = visible && Array.isArray(snoozeOptions) ? snoozeOptions.join(",") : "";
+  if (currentRenderedSnoozeKey === newKey) {
+    return;
+  }
+  currentRenderedSnoozeKey = newKey;
   snoozeActionsEl.textContent = "";
 
   if (!visible || !Array.isArray(snoozeOptions) || snoozeOptions.length === 0) {

@@ -83,6 +83,20 @@ h1 {
   padding: 11px 14px;
   font-weight: 700;
   cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.actions button:active {
+  transform: scale(0.98);
+}
+
+.hidden {
+  display: none !important;
+}
+
+#context-action {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #ffffff;
 }
 
 #pause {

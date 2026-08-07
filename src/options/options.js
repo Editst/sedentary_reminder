@@ -9,7 +9,6 @@ const elements = {
   longBreakMinutes: document.querySelector("#longBreakMinutes"),
   longBreakEvery: document.querySelector("#longBreakEvery"),
   reminderAutoCloseSeconds: document.querySelector("#reminderAutoCloseSeconds"),
-  breakCountdownSeconds: document.querySelector("#breakCountdownSeconds"),
   snoozeMinutesOptions: document.querySelector("#snoozeMinutesOptions"),
   reminderTitle: document.querySelector("#reminderTitle"),
   reminderBody: document.querySelector("#reminderBody")
@@ -27,7 +26,6 @@ function serializeForm() {
     longBreakMinutes: Number(elements.longBreakMinutes.value),
     longBreakEvery: Number(elements.longBreakEvery.value),
     reminderAutoCloseSeconds: Number(elements.reminderAutoCloseSeconds.value),
-    breakCountdownSeconds: Number(elements.breakCountdownSeconds.value),
     snoozeMinutesOptions: elements.snoozeMinutesOptions.value
       .split(",")
       .map((item) => Number.parseInt(item.trim(), 10))
@@ -44,7 +42,6 @@ function populateForm(settings) {
   elements.longBreakMinutes.value = settings.longBreakMinutes;
   elements.longBreakEvery.value = settings.longBreakEvery;
   elements.reminderAutoCloseSeconds.value = settings.reminderAutoCloseSeconds;
-  elements.breakCountdownSeconds.value = settings.breakCountdownSeconds;
   elements.snoozeMinutesOptions.value = settings.snoozeMinutesOptions.join(", ");
   elements.reminderTitle.value = settings.reminderTitle;
   elements.reminderBody.value = settings.reminderBody;

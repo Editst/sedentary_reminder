@@ -5,7 +5,8 @@ import {
   DEFAULT_STATE,
   MODES,
   MESSAGE_TYPES,
-  STORAGE_KEYS
+  STORAGE_KEYS,
+  MAIN_ALARM
 } from "../src/shared/constants.js";
 
 // --- Mock infrastructure ---
@@ -16,7 +17,9 @@ const captured = {
   onMessage: null,
   onTabRemoved: null,
   alarmsCreated: [],
-  bootstrapCount: 0,
+  notificationsCreated: [],
+  badgeText: "",
+  badgeColor: "",
   onAlarm: null
 };
 
@@ -71,31 +74,40 @@ before(async () => {
       onAlarm: { addListener: (fn) => { captured.onAlarm = fn; } }
     },
     notifications: {
-      create: async () => "notif",
+      create: async (id, opts) => {
+        captured.notificationsCreated.push({ id, ...opts });
+        return id;
+      },
       clear: async () => true,
       onClicked: { addListener: () => {} }
+    },
+    action: {
+      setBadgeText: async (opts) => { captured.badgeText = opts.text; },
+      setBadgeBackgroundColor: async (opts) => { captured.badgeColor = opts.color; }
     },
     runtime: {
       getURL: (p) => `chrome-extension://fake/${p}`,
       onMessage: { addListener: (fn) => { captured.onMessage = fn; } },
-      onInstalled: { addListener: (fn) => { /* 不自动调用，避免 bootstrap 计数干扰 */ } },
+      onInstalled: { addListener: () => {} },
       onStartup: { addListener: () => {} }
     },
     windows: { update: async () => ({}) }
   };
 
   await import("../src/background/service-worker.js");
-  // bootstrapRuntime 是 fire-and-forget，等它结束
   await new Promise((r) => setTimeout(r, 200));
 });
 
 beforeEach(() => {
   resetStorage();
   captured.alarmsCreated = [];
+  captured.notificationsCreated = [];
+  captured.badgeText = "";
+  captured.badgeColor = "";
 });
 
 // ------------------------------------------------------------------
-// #1 CRITICAL: canEndBreak / canStartBreak 判定逻辑
+// #1 canEndBreak / canStartBreak 判定逻辑
 // ------------------------------------------------------------------
 
 describe("canEndBreak / canStartBreak conditions", () => {
@@ -106,7 +118,6 @@ describe("canEndBreak / canStartBreak conditions", () => {
       mode: MODES.shortBreak,
       currentSessionStart: now,
       currentSessionEnd: now + 5 * 60 * 1000,
-      // 关键：休息模式下不弹提醒页，所以 notificationOpen 为 false
       notificationOpen: false,
       notificationTabId: null,
       reminderKind: null
@@ -149,7 +160,6 @@ describe("canEndBreak / canStartBreak conditions", () => {
       mode: MODES.work,
       currentSessionStart: now - 50 * 60 * 1000,
       currentSessionEnd: now - 5 * 60 * 1000,
-      // 提醒页已被用户关闭
       notificationOpen: false,
       notificationTabId: null,
       reminderKind: null
@@ -166,13 +176,12 @@ describe("canEndBreak / canStartBreak conditions", () => {
 });
 
 // ------------------------------------------------------------------
-// #3 HIGH: snoozedUntil 暂停恢复后残留
+// #2 snoozedUntil 暂停恢复后残留
 // ------------------------------------------------------------------
 
 describe("snoozedUntil cleared on pause/resume", () => {
   it("handleResume should clear snoozedUntil", { timeout: 3000 }, async () => {
     const now = Date.now();
-    // 模拟已贪睡并暂停的状态
     localStore[STORAGE_KEYS.state] = {
       ...DEFAULT_STATE,
       mode: MODES.paused,
@@ -196,7 +205,7 @@ describe("snoozedUntil cleared on pause/resume", () => {
 });
 
 // ------------------------------------------------------------------
-// #4 MEDIUM: preserveSessionEnd 阻塞 saveSettings
+// #3 preserveSessionEnd 阻塞 saveSettings
 // ------------------------------------------------------------------
 
 describe("preserveSessionEnd cleared on saveSettings", () => {
@@ -229,7 +238,7 @@ describe("preserveSessionEnd cleared on saveSettings", () => {
 });
 
 // ------------------------------------------------------------------
-// #5 MEDIUM: scheduleMainAlarm NaN 防护
+// #4 scheduleMainAlarm NaN 防护
 // ------------------------------------------------------------------
 
 describe("scheduleMainAlarm NaN safety", () => {
@@ -245,7 +254,6 @@ describe("scheduleMainAlarm NaN safety", () => {
       reminderKind: "due"
     };
 
-    // 传入非法 minutes，服务端应容错而非抛 TypeError
     const res = await sendMessage({
       type: MESSAGE_TYPES.snooze,
       minutes: "not_a_number"
@@ -255,11 +263,11 @@ describe("scheduleMainAlarm NaN safety", () => {
 });
 
 // ------------------------------------------------------------------
-// handleSkip 基础测试（已有，保留）
+// #5 handleSkip 正常跳过
 // ------------------------------------------------------------------
 
 describe("handleSkip", () => {
-  it("should schedule next alarm at work duration, not break countdown", { timeout: 3000 }, async () => {
+  it("should schedule next alarm at work duration", { timeout: 3000 }, async () => {
     const now = Date.now();
     localStore[STORAGE_KEYS.state] = {
       ...DEFAULT_STATE,
@@ -279,53 +287,70 @@ describe("handleSkip", () => {
     assert.ok(alarm, "alarm should be scheduled after skip");
 
     const delay = alarm.when - now;
-    const breakCooldown = DEFAULT_SETTINGS.breakCountdownSeconds * 1000;
-
     assert.ok(
-      delay > breakCooldown,
-      `skip should schedule alarm at work duration (~${DEFAULT_SETTINGS.workMinutes}min), ` +
-      `got ~${Math.round(delay / 1000)}s (break countdown = ${DEFAULT_SETTINGS.breakCountdownSeconds}s)`
+      delay >= (DEFAULT_SETTINGS.workMinutes - 1) * 60 * 1000,
+      `skip should schedule alarm at work duration (~${DEFAULT_SETTINGS.workMinutes}min), got ~${Math.round(delay / 1000)}s`
     );
   });
+});
 
-  it("should reset currentSessionEnd to a future timestamp", { timeout: 3000 }, async () => {
+// ------------------------------------------------------------------
+// #6 测试提醒关闭时不重置工作进度
+// ------------------------------------------------------------------
+
+describe("testReminder non-destructive behavior", () => {
+  it("dismissing test reminder does NOT reset current work session progress", { timeout: 3000 }, async () => {
     const now = Date.now();
+    const originalStart = now - 30 * 60 * 1000;
+    const originalEnd = originalStart + 45 * 60 * 1000;
+
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: originalStart,
+      currentSessionEnd: originalEnd,
+      notificationOpen: true,
+      notificationTabId: 42,
+      reminderKind: "test"
+    };
+
+    // 用户在测试提醒页面点击关闭测试提醒（触发 skip）
+    const res = await sendMessage({ type: MESSAGE_TYPES.skip });
+    assert.equal(res.ok, true);
+
+    const state = localStore[STORAGE_KEYS.state];
+    assert.equal(
+      state.currentSessionStart,
+      originalStart,
+      "currentSessionStart should remain intact after dismissing test reminder"
+    );
+    assert.equal(
+      state.currentSessionEnd,
+      originalEnd,
+      "currentSessionEnd should remain intact after dismissing test reminder"
+    );
+    assert.equal(state.reminderKind, null, "reminderKind should be reset to null");
+  });
+});
+
+// ------------------------------------------------------------------
+// #7 提醒页关闭后自动安排兜底 Alarm 防止假死
+// ------------------------------------------------------------------
+
+describe("tabs.onRemoved fallback alarm", () => {
+  it("should schedule fallback snooze alarm when reminder was due and closed without action", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    const tabId = 42;
     localStore[STORAGE_KEYS.state] = {
       ...DEFAULT_STATE,
       mode: MODES.work,
       currentSessionStart: now - 50 * 60 * 1000,
       currentSessionEnd: now - 5 * 60 * 1000,
       notificationOpen: true,
-      notificationTabId: 42,
-      reminderKind: "due"
-    };
-
-    await sendMessage({ type: MESSAGE_TYPES.skip });
-
-    const state = localStore[STORAGE_KEYS.state];
-    assert.ok(
-      state.currentSessionEnd > now,
-      `currentSessionEnd should be in the future after skip, got ${state.currentSessionEnd} (now: ${now})`
-    );
-  });
-});
-
-// ------------------------------------------------------------------
-// tabs.onRemoved 基础行为测试
-// ------------------------------------------------------------------
-
-describe("tabs.onRemoved", () => {
-  it("should clear notification state when reminder tab is closed", { timeout: 3000 }, async () => {
-    const tabId = 42;
-    localStore[STORAGE_KEYS.state] = {
-      ...DEFAULT_STATE,
-      mode: MODES.work,
-      currentSessionStart: Date.now(),
-      currentSessionEnd: Date.now() + 30 * 60 * 1000,
-      notificationOpen: true,
       notificationTabId: tabId,
       reminderKind: "due"
     };
+    captured.alarmsCreated = [];
 
     captured.onTabRemoved(tabId);
     await new Promise((r) => setTimeout(r, 300));
@@ -334,11 +359,63 @@ describe("tabs.onRemoved", () => {
     assert.equal(state.notificationOpen, false, "notificationOpen should be false");
     assert.equal(state.notificationTabId, null, "notificationTabId should be null");
     assert.equal(state.reminderKind, null, "reminderKind should be null");
+
+    // 应该调度了一个延后兜底 Alarm（5分钟），防止扩展假死
+    const alarm = captured.alarmsCreated.at(-1);
+    assert.ok(alarm, "a fallback alarm should be scheduled after due reminder tab is closed");
+    assert.equal(alarm.name, MAIN_ALARM);
+    assert.ok(alarm.when > now, "alarm time should be in the future");
   });
 });
 
 // ------------------------------------------------------------------
-// 死锁测试放在最后
+// #8 休息结束触发系统通知并切回工作
+// ------------------------------------------------------------------
+
+describe("break session completion", () => {
+  it("should emit notification when break session ends", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.shortBreak,
+      currentSessionStart: now - 6 * 60 * 1000,
+      currentSessionEnd: now - 1 * 60 * 1000
+    };
+    captured.notificationsCreated = [];
+
+    await captured.onAlarm({ name: MAIN_ALARM });
+    await new Promise((r) => setTimeout(r, 50));
+
+    const state = localStore[STORAGE_KEYS.state];
+    assert.equal(state.mode, MODES.work, "mode should transition to work after break expires");
+    assert.ok(
+      captured.notificationsCreated.length > 0,
+      "a notification should be created to announce break completion"
+    );
+  });
+});
+
+// ------------------------------------------------------------------
+// #9 Badge 状态更新
+// ------------------------------------------------------------------
+
+describe("action badge updates", () => {
+  it("should update badge text on status sync", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now,
+      currentSessionEnd: now + 25 * 60 * 1000
+    };
+
+    await sendMessage({ type: MESSAGE_TYPES.getStatus });
+    assert.ok(captured.badgeText.length > 0, "badgeText should be set");
+  });
+});
+
+// ------------------------------------------------------------------
+// #10 死锁测试
 // ------------------------------------------------------------------
 
 describe("withStateLock deadlock prevention", () => {
