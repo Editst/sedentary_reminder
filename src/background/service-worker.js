@@ -93,9 +93,9 @@ function buildStatus(state, settings, now = Date.now()) {
     currentPhaseLabel: due && state.mode === MODES.work ? "提醒已到" : MODE_LABELS[effectiveMode] ?? effectiveMode,
     canPause: state.mode !== MODES.paused,
     canResume: state.mode === MODES.paused,
-    canStartBreak: reminderIsDue && state.mode === MODES.work,
-    canEndBreak: reminderIsDue && (state.mode === MODES.shortBreak || state.mode === MODES.longBreak),
-    canSnooze: reminderIsDue && state.mode === MODES.work,
+    canStartBreak: due && state.mode === MODES.work,
+    canEndBreak: state.mode === MODES.shortBreak || state.mode === MODES.longBreak,
+    canSnooze: due && state.mode === MODES.work,
     canCloseReminder: hasActiveReminder || reminderIsTest
   };
 }
@@ -119,7 +119,7 @@ function clearResumeLock(state) {
 
 async function scheduleMainAlarm(whenMs) {
   await globalThis.chrome.alarms.clear(MAIN_ALARM);
-  if (whenMs == null) {
+  if (whenMs == null || !Number.isFinite(whenMs)) {
     return;
   }
 
@@ -391,7 +391,7 @@ function handleSaveSettings(payload) {
       return disableRuntime(snapshot.state, settings);
     }
 
-    const state = applySettingsToState(snapshot.state, settings);
+    const state = applySettingsToState(clearResumeLock(snapshot.state), settings);
     await writeState(state);
     return _reconcileRuntimeInner(Date.now(), { openDueReminder: true });
   });
@@ -408,6 +408,7 @@ function handlePause() {
     const remainingMs = getRemainingMs(snapshot.state, now);
     const nextState = pauseState(snapshot.state);
     nextState.pausedRemainingMs = remainingMs;
+    nextState.snoozedUntil = 0;
     nextState.notificationOpen = false;
     nextState.notificationTabId = null;
     nextState.reminderKind = null;
@@ -427,6 +428,7 @@ function handleResume() {
     }
 
     const nextState = resumeState(snapshot.state);
+    nextState.snoozedUntil = 0;
 
     if (typeof snapshot.state.pausedRemainingMs === "number" && snapshot.state.pausedRemainingMs > 0) {
       nextState.currentSessionEnd = now + snapshot.state.pausedRemainingMs;
@@ -565,27 +567,32 @@ async function handleMessage(message) {
   }
 }
 
-async function bootstrapRuntime() {
-  await reconcileRuntime({ openDueReminder: true });
-}
 
 globalThis.chrome.runtime.onInstalled.addListener(() => {
-  void bootstrapRuntime();
+  void reconcileRuntime({ openDueReminder: true }).catch((error) => {
+    console.error("[onInstalled] bootstrapRuntime failed:", error);
+  });
 });
 
 globalThis.chrome.runtime.onStartup.addListener(() => {
-  void bootstrapRuntime();
+  void reconcileRuntime({ openDueReminder: true }).catch((error) => {
+    console.error("[onStartup] bootstrapRuntime failed:", error);
+  });
 });
 
 globalThis.chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === MAIN_ALARM) {
-    void reconcileRuntime({ openDueReminder: true });
+    void reconcileRuntime({ openDueReminder: true }).catch((error) => {
+      console.error("[onAlarm] reconcileRuntime failed:", error);
+    });
   }
 });
 
 globalThis.chrome.notifications.onClicked.addListener((notificationId) => {
   if (notificationId === NOTIFICATION_ID) {
-    void reconcileRuntime({ openDueReminder: true });
+    void reconcileRuntime({ openDueReminder: true }).catch((error) => {
+      console.error("[notifications.onClicked] reconcileRuntime failed:", error);
+    });
   }
 });
 
@@ -603,6 +610,8 @@ globalThis.chrome.tabs.onRemoved.addListener((tabId) => {
       reminderKind: null
     };
     await writeState(nextState);
+  }).catch((error) => {
+    console.error("[tabs.onRemoved] state cleanup failed:", error);
   });
 });
 
@@ -612,11 +621,13 @@ globalThis.chrome.runtime.onMessage.addListener((message, _sender, sendResponse)
       const response = await handleMessage(message);
       sendResponse({ ok: true, data: response });
     } catch (error) {
-      sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      try {
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      } catch (sendError) {
+        console.warn("[onMessage] sendResponse failed (port likely closed):", sendError);
+      }
     }
   })();
 
   return true;
 });
-
-void bootstrapRuntime();

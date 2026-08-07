@@ -12,7 +12,13 @@ import {
 
 const syncStore = {};
 const localStore = {};
-const captured = { onMessage: null, onTabRemoved: null, alarmsCreated: [] };
+const captured = {
+  onMessage: null,
+  onTabRemoved: null,
+  alarmsCreated: [],
+  bootstrapCount: 0,
+  onAlarm: null
+};
 
 function clearObject(obj) {
   for (const key of Object.keys(obj)) {
@@ -62,7 +68,7 @@ before(async () => {
     alarms: {
       create: async (name, opts) => { captured.alarmsCreated.push({ name, ...opts }); },
       clear: async () => true,
-      onAlarm: { addListener: () => {} }
+      onAlarm: { addListener: (fn) => { captured.onAlarm = fn; } }
     },
     notifications: {
       create: async () => "notif",
@@ -72,7 +78,7 @@ before(async () => {
     runtime: {
       getURL: (p) => `chrome-extension://fake/${p}`,
       onMessage: { addListener: (fn) => { captured.onMessage = fn; } },
-      onInstalled: { addListener: () => {} },
+      onInstalled: { addListener: (fn) => { /* 不自动调用，避免 bootstrap 计数干扰 */ } },
       onStartup: { addListener: () => {} }
     },
     windows: { update: async () => ({}) }
@@ -89,7 +95,167 @@ beforeEach(() => {
 });
 
 // ------------------------------------------------------------------
-// handleSkip 测试放在前面，因为不会触发死锁
+// #1 CRITICAL: canEndBreak / canStartBreak 判定逻辑
+// ------------------------------------------------------------------
+
+describe("canEndBreak / canStartBreak conditions", () => {
+  it("canEndBreak should be true in break mode even without open notification tab", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.shortBreak,
+      currentSessionStart: now,
+      currentSessionEnd: now + 5 * 60 * 1000,
+      // 关键：休息模式下不弹提醒页，所以 notificationOpen 为 false
+      notificationOpen: false,
+      notificationTabId: null,
+      reminderKind: null
+    };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.getStatus });
+    assert.equal(res.ok, true);
+    assert.equal(
+      res.data.canEndBreak,
+      true,
+      "canEndBreak should be true during break mode regardless of notification state"
+    );
+  });
+
+  it("handleEndBreak should succeed during break mode", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.shortBreak,
+      currentSessionStart: now,
+      currentSessionEnd: now + 5 * 60 * 1000,
+      notificationOpen: false,
+      notificationTabId: null,
+      reminderKind: null
+    };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.endBreak });
+    assert.equal(res.ok, true);
+    assert.equal(
+      res.data.state.mode,
+      MODES.work,
+      "mode should transition to work after ending break"
+    );
+  });
+
+  it("canStartBreak should be true when work session is due, even if notification tab is closed", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now - 50 * 60 * 1000,
+      currentSessionEnd: now - 5 * 60 * 1000,
+      // 提醒页已被用户关闭
+      notificationOpen: false,
+      notificationTabId: null,
+      reminderKind: null
+    };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.getStatus });
+    assert.equal(res.ok, true);
+    assert.equal(
+      res.data.canStartBreak,
+      true,
+      "canStartBreak should be true when work is due, regardless of notification tab"
+    );
+  });
+});
+
+// ------------------------------------------------------------------
+// #3 HIGH: snoozedUntil 暂停恢复后残留
+// ------------------------------------------------------------------
+
+describe("snoozedUntil cleared on pause/resume", () => {
+  it("handleResume should clear snoozedUntil", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    // 模拟已贪睡并暂停的状态
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.paused,
+      previousMode: MODES.work,
+      currentSessionStart: now - 30 * 60 * 1000,
+      currentSessionEnd: now + 15 * 60 * 1000,
+      snoozedUntil: now + 10 * 60 * 1000,
+      pausedRemainingMs: 15 * 60 * 1000
+    };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.resume });
+    assert.equal(res.ok, true);
+
+    const state = localStore[STORAGE_KEYS.state];
+    assert.equal(
+      state.snoozedUntil,
+      0,
+      `snoozedUntil should be 0 after resume, got ${state.snoozedUntil}`
+    );
+  });
+});
+
+// ------------------------------------------------------------------
+// #4 MEDIUM: preserveSessionEnd 阻塞 saveSettings
+// ------------------------------------------------------------------
+
+describe("preserveSessionEnd cleared on saveSettings", () => {
+  it("saveSettings should apply new workMinutes even when preserveSessionEnd is true", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now,
+      currentSessionEnd: now + 45 * 60 * 1000,
+      preserveSessionEnd: true
+    };
+
+    const newWorkMinutes = 30;
+    const res = await sendMessage({
+      type: MESSAGE_TYPES.saveSettings,
+      settings: { ...DEFAULT_SETTINGS, workMinutes: newWorkMinutes }
+    });
+    assert.equal(res.ok, true);
+
+    const state = localStore[STORAGE_KEYS.state];
+    const expectedEnd = state.currentSessionStart + newWorkMinutes * 60 * 1000;
+    assert.equal(
+      state.currentSessionEnd,
+      expectedEnd,
+      `currentSessionEnd should reflect new workMinutes (${newWorkMinutes}min), ` +
+      `got ${(state.currentSessionEnd - state.currentSessionStart) / 60000}min`
+    );
+  });
+});
+
+// ------------------------------------------------------------------
+// #5 MEDIUM: scheduleMainAlarm NaN 防护
+// ------------------------------------------------------------------
+
+describe("scheduleMainAlarm NaN safety", () => {
+  it("snooze with NaN minutes should not throw", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now - 50 * 60 * 1000,
+      currentSessionEnd: now - 5 * 60 * 1000,
+      notificationOpen: true,
+      notificationTabId: 42,
+      reminderKind: "due"
+    };
+
+    // 传入非法 minutes，服务端应容错而非抛 TypeError
+    const res = await sendMessage({
+      type: MESSAGE_TYPES.snooze,
+      minutes: "not_a_number"
+    });
+    assert.equal(res.ok, true, `snooze with invalid minutes should not crash: ${JSON.stringify(res)}`);
+  });
+});
+
+// ------------------------------------------------------------------
+// handleSkip 基础测试（已有，保留）
 // ------------------------------------------------------------------
 
 describe("handleSkip", () => {
@@ -172,7 +338,7 @@ describe("tabs.onRemoved", () => {
 });
 
 // ------------------------------------------------------------------
-// 死锁测试放在最后（一旦死锁，后续所有 withStateLock 调用均阻塞）
+// 死锁测试放在最后
 // ------------------------------------------------------------------
 
 describe("withStateLock deadlock prevention", () => {

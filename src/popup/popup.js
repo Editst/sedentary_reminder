@@ -105,4 +105,7 @@ optionsButton.addEventListener("click", async () => {
 });
 
 void refresh();
+window.setInterval(() => {
+  void refresh();
+}, 1000);
 

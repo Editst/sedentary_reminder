@@ -84,9 +84,9 @@
 ### 状态流转
 
 ```text
-work ──(到期)──→ 提醒页 ──startBreak──→ shortBreak/longBreak ──(倒计时结束)──→ work
+work ──(到期)──→ 提醒页 ──startBreak──→ shortBreak/longBreak ──(倒计时结束 / 手动结束)──→ work
                        ├─ snooze ──→ (延后到期后再次提醒)
-                       └─ skip ──→ work（保持当前阶段，短暂冷却后继续）
+                       └─ skip ──→ work（重置工作计时器，开启新的完整工作周期）
 
 任意活动状态 ──pause──→ paused ──resume──→ 恢复之前的模式与剩余时间
 ```
@@ -137,26 +137,39 @@ time_reminder/
 │  │  └─ notification.css
 │  └─ assets/icons/       # 扩展图标 16/32/48/128
 ├─ tests/                 # Node 24 原生测试
-│  ├─ timer-engine.test.js
-│  └─ validation.test.js
+│  ├─ service-worker.test.js  # 状态机/并发/调度集成测试
+│  ├─ storage.test.js         # 状态归一化与字段清洗
+│  ├─ timer-engine.test.js    # 阶段流转纯函数测试
+│  └─ validation.test.js      # 配置校验逻辑测试
+├─ CHANGELOG.md
+├─ ROADMAP.md
 └─ README.md
 ```
 
 ## 测试状态
 
-当前自动化测试覆盖：
+当前自动化测试覆盖（22 项用例，全部通过）：
 
 - 配置校验逻辑（默认值回退、数值钳位、延后选项过滤）
 - 工作 / 短休息 / 长休息切换逻辑
 - 延后提醒逻辑
+- `canEndBreak` / `canStartBreak` 条件判定（无需提醒页打开）
+- `withStateLock` 死锁预防（嵌套调用不阻塞）
+- `handleSkip` 调度计算（按完整工作时长重置）
+- `handleResume` 后 `snoozedUntil` 清零
+- `handleSaveSettings` 在 `preserveSessionEnd` 激活时仍正确应用新设置
+- `scheduleMainAlarm` NaN 输入防护
+- `tabs.onRemoved` 事件的状态清理
+- 存储状态归一化与未知属性过滤
 
 ## 设计决策
 
 - **纯 JS 而非 TypeScript**：初始设计文档指定 TypeScript + Vite + Vitest，实际实现选择原生 JS + ES Modules，省去构建步骤，降低维护成本，可直接从 `src/` 加载为 unpacked extension。
 - **`chrome.storage.sync` 与 `local` 分离**：设置跨设备同步，运行状态仅本机持久化。
 - **纯函数状态机**：计时逻辑集中在 `timer_engine.js`，不依赖 Chrome API，便于单元测试。
-- **状态操作串行锁**：`service-worker.js` 中所有修改状态的操作通过 `withStateLock` 串行化，防止并发消息导致的 read-modify-write 竞态。
+- **状态操作串行锁**：`service-worker.js` 中所有修改状态的操作通过 `withStateLock` 串行化，防止并发消息导致的 read-modify-write 竞态。内部通过拆分 `_reconcileRuntimeInner` 避免嵌套调用导致的自死锁。
 - **单实例提醒窗口**：通过 tab query + normalize 策略确保同时只有一个提醒窗口。
+- **动态贪睡按钮**：通知页根据用户在设置中配置的 `snoozeMinutesOptions` 动态渲染按钮，而非硬编码。
 
 ## 后续可扩展方向
 

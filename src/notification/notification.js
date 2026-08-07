@@ -7,8 +7,7 @@ const countdownCopyEl = document.querySelector("#countdown-copy");
 const progressEl = document.querySelector("#progress");
 const statusEl = document.querySelector("#status");
 const primaryActionButton = document.querySelector("#primary-action");
-const snooze5Button = document.querySelector("#snooze-5");
-const snooze10Button = document.querySelector("#snooze-10");
+const snoozeActionsEl = document.querySelector("#snooze-actions");
 const skipButton = document.querySelector("#skip");
 
 let countdownTimer = null;
@@ -53,6 +52,7 @@ function renderCountdown() {
 
   if (remainingSeconds <= 0) {
     statusEl.textContent = "倒计时结束，提醒页即将关闭。";
+    clearTimers();
     window.close();
     return;
   }
@@ -81,22 +81,39 @@ function startCountdown(seconds) {
 function clearTimers() {
   if (countdownTimer) {
     window.clearInterval(countdownTimer);
+    countdownTimer = null;
   }
 
   if (syncTimer) {
     window.clearInterval(syncTimer);
+    syncTimer = null;
   }
 
   if (closeTimer) {
     window.clearTimeout(closeTimer);
+    closeTimer = null;
+  }
+}
+
+function renderSnoozeButtons(snoozeOptions, visible) {
+  snoozeActionsEl.textContent = "";
+
+  if (!visible || !Array.isArray(snoozeOptions) || snoozeOptions.length === 0) {
+    return;
+  }
+
+  for (const minutes of snoozeOptions) {
+    const button = document.createElement("button");
+    button.textContent = `延后 ${minutes} 分钟`;
+    button.addEventListener("click", () => void act(MESSAGE_TYPES.snooze, { minutes }));
+    snoozeActionsEl.appendChild(button);
   }
 }
 
 function renderReadonlyState() {
   primaryAction = MESSAGE_TYPES.skip;
   primaryActionButton.textContent = "关闭提醒页";
-  snooze5Button.hidden = true;
-  snooze10Button.hidden = true;
+  renderSnoozeButtons([], false);
   skipButton.hidden = true;
 }
 
@@ -110,8 +127,7 @@ function renderActions(snapshot) {
   if (snapshot.reminderKind === "test") {
     primaryAction = MESSAGE_TYPES.skip;
     primaryActionButton.textContent = "关闭测试提醒";
-    snooze5Button.hidden = true;
-    snooze10Button.hidden = true;
+    renderSnoozeButtons([], false);
     skipButton.hidden = true;
     return;
   }
@@ -119,8 +135,7 @@ function renderActions(snapshot) {
   if (snapshot.canEndBreak) {
     primaryAction = MESSAGE_TYPES.endBreak;
     primaryActionButton.textContent = "结束休息，返回工作";
-    snooze5Button.hidden = true;
-    snooze10Button.hidden = true;
+    renderSnoozeButtons([], false);
     skipButton.hidden = true;
     return;
   }
@@ -128,8 +143,8 @@ function renderActions(snapshot) {
   if (snapshot.canStartBreak) {
     primaryAction = MESSAGE_TYPES.startBreak;
     primaryActionButton.textContent = "立即开始休息";
-    snooze5Button.hidden = !snapshot.canSnooze;
-    snooze10Button.hidden = !snapshot.canSnooze;
+    const options = snapshot.settings?.snoozeMinutesOptions ?? [5, 10];
+    renderSnoozeButtons(options, snapshot.canSnooze);
     skipButton.hidden = false;
     skipButton.textContent = "暂不处理";
     return;
@@ -174,8 +189,6 @@ async function act(type, extra = {}) {
 }
 
 primaryActionButton.addEventListener("click", () => void act(primaryAction));
-snooze5Button.addEventListener("click", () => void act(MESSAGE_TYPES.snooze, { minutes: 5 }));
-snooze10Button.addEventListener("click", () => void act(MESSAGE_TYPES.snooze, { minutes: 10 }));
 skipButton.addEventListener("click", () => void act(MESSAGE_TYPES.skip));
 window.addEventListener("beforeunload", clearTimers);
 document.addEventListener("visibilitychange", () => {
@@ -188,4 +201,3 @@ void syncSnapshot();
 syncTimer = window.setInterval(() => {
   void syncSnapshot();
 }, 5000);
-
