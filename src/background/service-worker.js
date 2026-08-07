@@ -235,6 +235,8 @@ async function openReminderTab(state) {
 }
 
 async function closeReminderTab(tabId) {
+  await globalThis.chrome.notifications.clear(NOTIFICATION_ID).catch(() => {});
+
   if (tabId == null) {
     return;
   }
@@ -610,6 +612,7 @@ globalThis.chrome.tabs.onRemoved.addListener((tabId) => {
       reminderKind: null
     };
     await writeState(nextState);
+    await globalThis.chrome.notifications.clear(NOTIFICATION_ID).catch(() => {});
   }).catch((error) => {
     console.error("[tabs.onRemoved] state cleanup failed:", error);
   });
