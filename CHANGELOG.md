@@ -45,6 +45,21 @@
 
 ## 版本变更历史 (Changelog)
 
+### [1.4.1] - 2026-08-15
+
+#### Fix
+- **service-worker**: 修复延后提醒（Snooze 5/10 分钟）实际仅延后约 1 分钟的 P0 级缺陷。根因：`handleSnooze` 中 `resetRuntimeState` 在 `applySnooze` 之后执行，将刚计算的 `snoozedUntil` 盲目覆写为 0，导致无 Alarm 被调度，1 分钟后兜底重试逻辑重新弹出提醒窗口。
+- **service-worker**: 修复 Extension Badge 倒计时不自动更新、仅在点击 Popup 时才刷新的缺陷。根因：MV3 Service Worker 在无事件时休眠，整个 session 生命周期内只有一个终点 Alarm，中间无任何定时事件唤醒 Service Worker 刷新 Badge。
+
+#### Refactor
+- **service-worker**: 将 `snoozedUntil` 从 `resetRuntimeState` 的管辖范围移除。`snoozedUntil` 属于调度逻辑状态而非运行时/UI 状态，不应被窗口清理函数盲目重置。仅在 `disableRuntime` 中显式清零。此变更同时修复了两个潜在缺陷：关闭测试提醒（test reminder skip）时误清除进行中的 snooze 延后；`syncReminderWindowState` 窗口同步时误清除 snooze 计划。
+
+#### Feat
+- **service-worker**: 新增 `time-reminder-badge-tick` 周期性 Chrome Alarm（每分钟触发），在计时器活跃期间自动唤醒 Service Worker 刷新 Badge 倒计时。暂停/停止/禁用/非生效时段自动停止，零冗余唤醒。
+
+#### Test
+- 新增 8 项回归测试用例（snooze 5min/10min 状态验证、test reminder skip 不破坏 snoozedUntil、badge-tick alarm 生命周期与触发验证、syncReminderWindowState 保留 snoozedUntil），测试总数 53 项。
+
 ### [1.4.0] - 2026-08-08
 
 #### Feat

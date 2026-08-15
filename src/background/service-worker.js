@@ -24,6 +24,7 @@ function withStateLock(fn) {
 const REMINDER_PATH = "notification/notification.html";
 const REMINDER_URL = globalThis.chrome.runtime.getURL(REMINDER_PATH);
 const ICON_URL = globalThis.chrome.runtime.getURL("assets/icons/time-reminder-128.png");
+const BADGE_TICK_ALARM = "time-reminder-badge-tick";
 
 const MODE_LABELS = {
   [MODES.work]: "专注工作",
@@ -162,7 +163,6 @@ function resetRuntimeState(state) {
     ...state,
     notificationOpen: false,
     notificationTabId: null,
-    snoozedUntil: 0,
     reminderKind: null
   };
 }
@@ -172,6 +172,14 @@ function clearResumeLock(state) {
   delete nextState.pausedRemainingMs;
   delete nextState.preserveSessionEnd;
   return nextState;
+}
+
+async function startBadgeTick() {
+  await globalThis.chrome.alarms.create(BADGE_TICK_ALARM, { periodInMinutes: 1 });
+}
+
+async function stopBadgeTick() {
+  await globalThis.chrome.alarms.clear(BADGE_TICK_ALARM);
 }
 
 async function scheduleMainAlarm(whenMs) {
@@ -373,10 +381,12 @@ async function showReminder(state, settings, now, kind) {
 
 async function disableRuntime(state, settings) {
   await globalThis.chrome.alarms.clear(MAIN_ALARM);
+  await stopBadgeTick();
   await globalThis.chrome.notifications.clear(NOTIFICATION_ID);
   await closeReminderTab(state.notificationTabId);
 
   const nextState = clearResumeLock(resetRuntimeState(state));
+  nextState.snoozedUntil = 0;
   await writeState(nextState);
   await updateActionBadge(nextState, settings);
   return buildStatus(nextState, settings);
@@ -396,6 +406,7 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false } = {}) {
   if (!inSchedule) {
     await globalThis.chrome.notifications.clear(NOTIFICATION_ID).catch(() => {});
     await closeReminderTab(state.notificationTabId);
+    await stopBadgeTick();
 
     const nextScheduleStart = getNextScheduleStartTime(settings, now);
     await scheduleMainAlarm(nextScheduleStart);
@@ -411,6 +422,7 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false } = {}) {
 
   if (state.mode === MODES.paused) {
     await globalThis.chrome.alarms.clear(MAIN_ALARM);
+    await stopBadgeTick();
     await updateActionBadge(state, settings, now);
     return buildStatus(state, settings, now);
   }
@@ -431,6 +443,7 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false } = {}) {
     }
 
     await scheduleMainAlarm(state.currentSessionEnd);
+    await startBadgeTick();
     await updateActionBadge(state, settings, now);
     return buildStatus(state, settings, now);
   }
@@ -448,6 +461,7 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false } = {}) {
         await scheduleMainAlarm(now + 60 * 1000);
       }
     }
+    await startBadgeTick();
     await updateActionBadge(state, settings, now);
     return buildStatus(state, settings, now);
   }
@@ -462,6 +476,7 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false } = {}) {
   }
 
   await scheduleMainAlarm(target);
+  await startBadgeTick();
   await updateActionBadge(state, settings, now);
   return buildStatus(state, settings, now);
 }
@@ -695,6 +710,12 @@ globalThis.chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === MAIN_ALARM) {
     return reconcileRuntime({ openDueReminder: true }).catch((error) => {
       console.error("[onAlarm] reconcileRuntime failed:", error);
+    });
+  }
+
+  if (alarm.name === BADGE_TICK_ALARM) {
+    return reconcileRuntime({ openDueReminder: false }).catch((error) => {
+      console.error("[onAlarm:badgeTick] reconcileRuntime failed:", error);
     });
   }
 });

@@ -450,9 +450,8 @@ describe("getStatus alarm retention on due session", () => {
     assert.equal(res.ok, true);
     assert.equal(res.data.due, true);
 
-    const alarm = captured.alarmsCreated.at(-1);
+    const alarm = captured.alarmsCreated.find((a) => a.name === MAIN_ALARM);
     assert.ok(alarm, "retry alarm should be scheduled so closing popup does not leave the timer stranded");
-    assert.equal(alarm.name, MAIN_ALARM);
     assert.ok(alarm.when > now, "alarm when timestamp should be in the near future");
   });
 });
@@ -617,3 +616,201 @@ describe("tabs.onRemoved out-of-schedule behavior", () => {
     assert.ok(captured.alarmsCreated.length > 0);
   });
 });
+
+// ------------------------------------------------------------------
+// #17 Snooze preserves snoozedUntil (Bug 1 regression)
+// ------------------------------------------------------------------
+
+describe("snooze preserves snoozedUntil", () => {
+  it("handleSnooze(5) should set snoozedUntil ~5 minutes in the future", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now - 50 * 60 * 1000,
+      currentSessionEnd: now - 5 * 60 * 1000,
+      notificationOpen: true,
+      notificationTabId: 42,
+      reminderKind: "due"
+    };
+    captured.alarmsCreated = [];
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.snooze, minutes: "5" });
+    assert.equal(res.ok, true);
+
+    const state = localStore[STORAGE_KEYS.state];
+    const expectedMin = now + 4 * 60 * 1000;
+    const expectedMax = now + 6 * 60 * 1000;
+    assert.ok(
+      state.snoozedUntil >= expectedMin && state.snoozedUntil <= expectedMax,
+      `snoozedUntil should be ~5min from now, got ${Math.round((state.snoozedUntil - now) / 1000)}s`
+    );
+
+    const alarm = captured.alarmsCreated.at(-1);
+    assert.ok(alarm, "an alarm should be scheduled for the snooze");
+    assert.equal(alarm.name, MAIN_ALARM);
+    const alarmDelay = alarm.when - now;
+    assert.ok(
+      alarmDelay >= 4 * 60 * 1000 && alarmDelay <= 6 * 60 * 1000,
+      `alarm should fire in ~5min, got ~${Math.round(alarmDelay / 1000)}s`
+    );
+  });
+
+  it("handleSnooze(10) should set snoozedUntil ~10 minutes in the future", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now - 50 * 60 * 1000,
+      currentSessionEnd: now - 5 * 60 * 1000,
+      notificationOpen: true,
+      notificationTabId: 42,
+      reminderKind: "due"
+    };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.snooze, minutes: "10" });
+    assert.equal(res.ok, true);
+
+    const state = localStore[STORAGE_KEYS.state];
+    const expectedMin = now + 9 * 60 * 1000;
+    const expectedMax = now + 11 * 60 * 1000;
+    assert.ok(
+      state.snoozedUntil >= expectedMin && state.snoozedUntil <= expectedMax,
+      `snoozedUntil should be ~10min from now, got ${Math.round((state.snoozedUntil - now) / 1000)}s`
+    );
+  });
+});
+
+// ------------------------------------------------------------------
+// #18 Test reminder skip preserves snoozedUntil (latent bug)
+// ------------------------------------------------------------------
+
+describe("test reminder skip preserves snoozedUntil", () => {
+  it("dismissing test reminder should NOT destroy an active snoozedUntil", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    const snoozedUntil = now + 8 * 60 * 1000;
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now - 50 * 60 * 1000,
+      currentSessionEnd: now - 5 * 60 * 1000,
+      snoozedUntil,
+      notificationOpen: true,
+      notificationTabId: 42,
+      reminderKind: "test"
+    };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.skip });
+    assert.equal(res.ok, true);
+
+    const state = localStore[STORAGE_KEYS.state];
+    assert.equal(
+      state.snoozedUntil,
+      snoozedUntil,
+      `snoozedUntil should be preserved after dismissing test reminder, got ${state.snoozedUntil}`
+    );
+  });
+});
+
+// ------------------------------------------------------------------
+// #19 Badge tick alarm lifecycle
+// ------------------------------------------------------------------
+
+describe("badge tick alarm lifecycle", () => {
+  it("should create badge-tick alarm during active work session", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now,
+      currentSessionEnd: now + 45 * 60 * 1000
+    };
+    captured.alarmsCreated = [];
+
+    await sendMessage({ type: MESSAGE_TYPES.getStatus });
+
+    const badgeTick = captured.alarmsCreated.find((a) => a.name === "time-reminder-badge-tick");
+    assert.ok(badgeTick, "badge-tick alarm should be created during active work");
+    assert.equal(badgeTick.periodInMinutes, 1, "badge-tick should fire every 1 minute");
+  });
+
+  it("should NOT create badge-tick alarm when paused", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.paused,
+      previousMode: MODES.work
+    };
+    captured.alarmsCreated = [];
+
+    await sendMessage({ type: MESSAGE_TYPES.getStatus });
+
+    const badgeTick = captured.alarmsCreated.find((a) => a.name === "time-reminder-badge-tick");
+    assert.equal(badgeTick, undefined, "badge-tick alarm should NOT exist when paused");
+  });
+
+  it("should NOT create badge-tick alarm when disabled", { timeout: 3000 }, async () => {
+    syncStore[STORAGE_KEYS.settings] = { ...DEFAULT_SETTINGS, enabled: false };
+    captured.alarmsCreated = [];
+
+    await sendMessage({ type: MESSAGE_TYPES.getStatus });
+
+    const badgeTick = captured.alarmsCreated.find((a) => a.name === "time-reminder-badge-tick");
+    assert.equal(badgeTick, undefined, "badge-tick alarm should NOT exist when disabled");
+  });
+});
+
+// ------------------------------------------------------------------
+// #20 Badge tick alarm triggers badge update
+// ------------------------------------------------------------------
+
+describe("badge tick alarm triggers update", () => {
+  it("badge-tick alarm should refresh badge text", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now,
+      currentSessionEnd: now + 25 * 60 * 1000
+    };
+    captured.badgeText = "";
+
+    await captured.onAlarm({ name: "time-reminder-badge-tick" });
+    await new Promise((r) => setTimeout(r, 50));
+
+    assert.ok(captured.badgeText.length > 0, "badgeText should be updated after badge-tick alarm");
+  });
+});
+
+// ------------------------------------------------------------------
+// #21 syncReminderWindowState preserves snoozedUntil (latent bug)
+// ------------------------------------------------------------------
+
+describe("syncReminderWindowState preserves snoozedUntil", () => {
+  it("closing notification tab should not destroy snoozedUntil", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    const snoozedUntil = now + 5 * 60 * 1000;
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now - 50 * 60 * 1000,
+      currentSessionEnd: now - 5 * 60 * 1000,
+      snoozedUntil,
+      notificationOpen: true,
+      notificationTabId: 99,
+      reminderKind: "due"
+    };
+
+    // Simulate the notification tab being closed
+    captured.onTabRemoved(99);
+    await new Promise((r) => setTimeout(r, 300));
+
+    const state = localStore[STORAGE_KEYS.state];
+    // snoozedUntil should be preserved (not reset to 0) since snooze is still active
+    assert.ok(
+      state.snoozedUntil >= snoozedUntil - 1000,
+      `snoozedUntil should be preserved after tab close, got ${state.snoozedUntil} (expected ~${snoozedUntil})`
+    );
+  });
+});
+
