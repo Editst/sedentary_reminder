@@ -3,8 +3,8 @@ import { createInitialState } from "./timer_engine.js";
 import { normalizeSettings } from "./validation.js";
 
 const MEMORY = {
-  settings: null,
-  state: null
+  [STORAGE_KEYS.settings]: null,
+  [STORAGE_KEYS.state]: null
 };
 
 const MODE_SET = new Set(Object.values(MODES));
@@ -95,7 +95,7 @@ export function normalizeState(input = {}, now = Date.now(), settings = DEFAULT_
 
 async function readFromStorage(area, key, fallback) {
   if (!area) {
-    return fallback;
+    return MEMORY[key] ?? fallback;
   }
 
   const result = await area.get(key);
@@ -104,6 +104,7 @@ async function readFromStorage(area, key, fallback) {
 
 async function writeToStorage(area, key, value) {
   if (!area) {
+    MEMORY[key] = value;
     return value;
   }
 
@@ -116,12 +117,8 @@ export async function readSettings() {
   const rawSettings = await readFromStorage(area, STORAGE_KEYS.settings, null);
   const normalizedSettings = normalizeSettings(rawSettings ?? DEFAULT_SETTINGS);
 
-  if (area && rawSettings == null) {
+  if (rawSettings == null) {
     await writeToStorage(area, STORAGE_KEYS.settings, normalizedSettings);
-  }
-
-  if (!area) {
-    MEMORY.settings = normalizedSettings;
   }
 
   return normalizedSettings;
@@ -130,13 +127,7 @@ export async function readSettings() {
 export async function writeSettings(input) {
   const area = getChromeStorageArea("sync");
   const normalizedSettings = normalizeSettings(input ?? DEFAULT_SETTINGS);
-
-  if (area) {
-    await writeToStorage(area, STORAGE_KEYS.settings, normalizedSettings);
-  } else {
-    MEMORY.settings = normalizedSettings;
-  }
-
+  await writeToStorage(area, STORAGE_KEYS.settings, normalizedSettings);
   return normalizedSettings;
 }
 
@@ -155,13 +146,7 @@ export async function readState(now = Date.now(), settings = null) {
 export async function writeState(input) {
   const area = getChromeStorageArea("local");
   const normalizedState = normalizeState(input ?? DEFAULT_STATE);
-
-  if (area) {
-    await writeToStorage(area, STORAGE_KEYS.state, normalizedState);
-  } else {
-    MEMORY.state = normalizedState;
-  }
-
+  await writeToStorage(area, STORAGE_KEYS.state, normalizedState);
   return normalizedState;
 }
 

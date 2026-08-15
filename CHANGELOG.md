@@ -53,6 +53,11 @@
 
 #### Refactor
 - **service-worker**: 移除 `listReminderTabs`、`normalizeReminderTabs`、`syncReminderWindowState`、`_reconcileRuntimeInner` 中残留的 `console.log` / `console.error` 调试输出。
+- **service-worker**: 提取 `removeTabsSafely(ids)` 收敛批量关闭 tab 的 try/catch 模板。
+- **service-worker**: 提取 `commitTransition(snapshot, nextState, alarmTarget, now)` 收敛 `handleStartBreak`/`handleEndBreak`/`handleSnooze`/`handleSkip` 共同的 writeState → closeReminderTab → scheduleMainAlarm → updateActionBadge → buildStatus 五步骨架。
+- **service-worker**: 提取 `isAllowedSnooze(status, minutes, settings)` 集中 snooze 准入逻辑（`canSnooze` + 白名单）。
+- **service-worker**: 简化 `_reconcileRuntimeInner` 中 badge tick 同步判定为 `const shouldSync = !isBadgeTick || state.notificationOpen`，消除双重否定。
+- **storage**: 修复 MEMORY 兜底路径：`readFromStorage`/`writeToStorage` 在 `chrome.storage` 不可用时读写 `MEMORY` 对象，消除"写后不可读"的死代码。`readSettings`/`writeSettings`/`writeState` 统一走 `readFromStorage`/`writeToStorage`，移除分支冗余。
 
 #### Test
 - **tdd**: 删除 `service-worker.test.js` 中 #22（Snooze guards）和 #23（badge tick tabs.query）的完整重复测试块。

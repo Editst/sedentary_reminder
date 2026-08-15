@@ -229,6 +229,17 @@ async function listReminderTabs() {
   const tabs = await globalThis.chrome.tabs.query({ url: `${REMINDER_URL}*` });
   return tabs.filter((tab) => isReminderUrl(tab.url));
 }
+async function removeTabsSafely(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return;
+  }
+
+  try {
+    await globalThis.chrome.tabs.remove(ids);
+  } catch (error) {
+    console.warn("[removeTabsSafely] chrome.tabs.remove failed:", error);
+  }
+}
 
 async function normalizeReminderTabs(preferredTabId = null) {
   const tabs = await listReminderTabs();
@@ -237,18 +248,11 @@ async function normalizeReminderTabs(preferredTabId = null) {
   }
 
   const canonical = tabs.find((tab) => tab.id === preferredTabId) ?? tabs[0];
-  const duplicates = tabs.filter((tab) => tab.id !== canonical.id);
-
-  if (duplicates.length > 0) {
-    const idsToRemove = duplicates.map((tab) => tab.id).filter((id) => id != null);
-    if (idsToRemove.length > 0) {
-      try {
-        await globalThis.chrome.tabs.remove(idsToRemove);
-      } catch (error) {
-        console.warn(`[normalizeReminderTabs] batch chrome.tabs.remove failed:`, error);
-      }
-    }
-  }
+  const idsToRemove = tabs
+    .filter((tab) => tab.id !== canonical.id)
+    .map((tab) => tab.id)
+    .filter((id) => id != null);
+  await removeTabsSafely(idsToRemove);
 
   return canonical;
 }
@@ -415,10 +419,8 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false, isBadgeTic
     return disableRuntime(state, settings);
   }
 
-  // Only bypass query if we are just a badge tick AND we don't think there's a notification open.
-  // If we think there's one open, we should sync to allow self-healing in case the user closed it.
-  const bypassQuery = isBadgeTick && !state.notificationOpen;
-  state = await syncReminderWindowState(state, !bypassQuery);
+  const shouldSync = !isBadgeTick || state.notificationOpen;
+  state = await syncReminderWindowState(state, shouldSync);
 
   const inSchedule = isWithinSchedule(settings, now);
   if (!inSchedule) {
@@ -583,6 +585,18 @@ function handleResume() {
   });
 }
 
+function isAllowedSnooze(status, minutes, settings) {
+  return status.canSnooze && settings.snoozeMinutesOptions.includes(minutes);
+}
+
+async function commitTransition(snapshot, nextState, alarmTarget, now) {
+  await writeState(nextState);
+  await closeReminderTab(snapshot.state.notificationTabId);
+  await scheduleMainAlarm(alarmTarget);
+  await updateActionBadge(nextState, snapshot.settings, now);
+  return buildStatus(nextState, snapshot.settings, now);
+}
+
 function handleSnooze(minutes) {
   return withStateLock(async () => {
     const now = Date.now();
@@ -592,20 +606,12 @@ function handleSnooze(minutes) {
     }
 
     const status = buildStatus(snapshot.state, snapshot.settings, now);
-    if (!status.canSnooze) {
-      return status;
-    }
-
-    if (!snapshot.settings.snoozeMinutesOptions.includes(minutes)) {
+    if (!isAllowedSnooze(status, minutes, snapshot.settings)) {
       return status;
     }
 
     const nextState = resetRuntimeState(applySnooze(clearResumeLock(snapshot.state), minutes, now));
-    await writeState(nextState);
-    await closeReminderTab(snapshot.state.notificationTabId);
-    await scheduleMainAlarm(nextState.snoozedUntil);
-    await updateActionBadge(nextState, snapshot.settings, now);
-    return buildStatus(nextState, snapshot.settings, now);
+    return commitTransition(snapshot, nextState, nextState.snoozedUntil, now);
   });
 }
 
@@ -623,11 +629,7 @@ function handleStartBreak() {
     }
 
     const nextState = resetRuntimeState(clearResumeLock(createNextBreakState(snapshot.state, snapshot.settings, now)));
-    await writeState(nextState);
-    await closeReminderTab(snapshot.state.notificationTabId);
-    await scheduleMainAlarm(nextState.currentSessionEnd);
-    await updateActionBadge(nextState, snapshot.settings, now);
-    return buildStatus(nextState, snapshot.settings, now);
+    return commitTransition(snapshot, nextState, nextState.currentSessionEnd, now);
   });
 }
 
@@ -645,11 +647,7 @@ function handleEndBreak() {
     }
 
     const nextState = resetRuntimeState(clearResumeLock(createNextWorkState(snapshot.state, snapshot.settings, now)));
-    await writeState(nextState);
-    await closeReminderTab(snapshot.state.notificationTabId);
-    await scheduleMainAlarm(nextState.currentSessionEnd);
-    await updateActionBadge(nextState, snapshot.settings, now);
-    return buildStatus(nextState, snapshot.settings, now);
+    return commitTransition(snapshot, nextState, nextState.currentSessionEnd, now);
   });
 }
 
@@ -663,23 +661,15 @@ function handleSkip() {
 
     if (snapshot.state.reminderKind === REMINDER_KINDS.test) {
       const nextState = resetRuntimeState(snapshot.state);
-      await writeState(nextState);
-      await closeReminderTab(snapshot.state.notificationTabId);
       const target = nextState.snoozedUntil > now ? nextState.snoozedUntil : nextState.currentSessionEnd;
-      await scheduleMainAlarm(target);
-      await updateActionBadge(nextState, snapshot.settings, now);
-      return buildStatus(nextState, snapshot.settings, now);
+      return commitTransition(snapshot, nextState, target, now);
     }
 
     const nextState = resetRuntimeState({
       ...clearResumeLock(createNextWorkState(snapshot.state, snapshot.settings, now, { countCycle: true })),
       lastReminderAt: now
     });
-    await writeState(nextState);
-    await closeReminderTab(snapshot.state.notificationTabId);
-    await scheduleMainAlarm(nextState.currentSessionEnd);
-    await updateActionBadge(nextState, snapshot.settings, now);
-    return buildStatus(nextState, snapshot.settings, now);
+    return commitTransition(snapshot, nextState, nextState.currentSessionEnd, now);
   });
 }
 
