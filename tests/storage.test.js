@@ -1,7 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeState } from "../src/shared/storage.js";
-import { DEFAULT_STATE, MODES } from "../src/shared/constants.js";
+import {
+  normalizeState,
+  readSettings,
+  readState,
+  writeSettings,
+  writeState
+} from "../src/shared/storage.js";
+import { DEFAULT_SETTINGS, DEFAULT_STATE, MODES } from "../src/shared/constants.js";
 
 describe("normalizeState", () => {
   it("should return valid defaults for empty input", () => {
@@ -49,4 +55,24 @@ describe("normalizeState", () => {
     assert.equal(state.mode, MODES.work);
     assert.ok(state.currentSessionEnd > 1000);
   });
+});
+
+it("preserves settings and state in the memory fallback", async () => {
+  const originalChrome = globalThis.chrome;
+  globalThis.chrome = undefined;
+
+  try {
+    const settings = await writeSettings({ ...DEFAULT_SETTINGS, workMinutes: 30 });
+    await writeState({
+      ...DEFAULT_STATE,
+      mode: MODES.shortBreak,
+      currentSessionStart: 1000,
+      currentSessionEnd: 2000
+    }, settings);
+
+    assert.equal((await readSettings()).workMinutes, 30);
+    assert.equal((await readState(1500, settings)).mode, MODES.shortBreak);
+  } finally {
+    globalThis.chrome = originalChrome;
+  }
 });

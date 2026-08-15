@@ -2,9 +2,21 @@ import { DEFAULT_SETTINGS } from "./constants.js";
 
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
+function toInteger(value) {
+  if (typeof value !== "number" && typeof value !== "string") {
+    return null;
+  }
+  if (typeof value === "string" && value.trim() === "") {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
 function clampInteger(value, min, max, fallback) {
-  const parsed = Number.parseInt(value, 10);
-  if (Number.isNaN(parsed)) {
+  const parsed = toInteger(value);
+  if (parsed === null) {
     return fallback;
   }
 
@@ -20,8 +32,8 @@ function clampInteger(value, min, max, fallback) {
 }
 
 function normalizeSnoozeOption(value, min, max) {
-  const parsed = Number.parseInt(value, 10);
-  if (Number.isNaN(parsed) || parsed < min || parsed > max) {
+  const parsed = toInteger(value);
+  if (parsed === null || parsed < min || parsed > max) {
     return null;
   }
 
@@ -48,8 +60,8 @@ function normalizeScheduleDays(days, fallback = [1, 2, 3, 4, 5]) {
   }
 
   const validDays = days
-    .map((item) => Number.parseInt(item, 10))
-    .filter((item) => Number.isInteger(item) && item >= 0 && item <= 6);
+    .map(toInteger)
+    .filter((item) => item !== null && item >= 0 && item <= 6);
 
   if (validDays.length === 0) {
     return fallback;

@@ -1,6 +1,6 @@
 import { DEFAULT_SETTINGS, DEFAULT_STATE, MODES, STORAGE_KEYS } from "./constants.js";
 import { createInitialState } from "./timer_engine.js";
-import { normalizeSettings } from "./validation.js";
+import { normalizeBoolean, normalizeSettings } from "./validation.js";
 
 const MEMORY = {
   [STORAGE_KEYS.settings]: null,
@@ -8,6 +8,7 @@ const MEMORY = {
 };
 
 const MODE_SET = new Set(Object.values(MODES));
+const RESUMABLE_MODE_SET = new Set([MODES.work, MODES.shortBreak, MODES.longBreak]);
 
 function getChromeStorageArea(areaName) {
   return globalThis.chrome?.storage?.[areaName] ?? null;
@@ -19,13 +20,25 @@ function toFiniteNumber(value, fallback) {
 }
 
 function toOptionalInteger(value) {
-  const parsed = Number.parseInt(value, 10);
-  return Number.isNaN(parsed) ? null : parsed;
+  if (typeof value !== "number" && typeof value !== "string") {
+    return null;
+  }
+  if (typeof value === "string" && value.trim() === "") {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : null;
 }
 
 function clampInteger(value, min, max, fallback) {
-  const parsed = Number.parseInt(value, 10);
-  if (Number.isNaN(parsed)) {
+  if (typeof value !== "number" && typeof value !== "string") {
+    return fallback;
+  }
+  if (typeof value === "string" && value.trim() === "") {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
     return fallback;
   }
 
@@ -34,6 +47,10 @@ function clampInteger(value, min, max, fallback) {
 
 function normalizeMode(value, fallback = DEFAULT_STATE.mode) {
   return MODE_SET.has(value) ? value : fallback;
+}
+
+function normalizePreviousMode(value) {
+  return RESUMABLE_MODE_SET.has(value) ? value : MODES.work;
 }
 
 function getDurationForMode(mode, settings, previousMode) {
@@ -54,7 +71,7 @@ function getDurationForMode(mode, settings, previousMode) {
 export function normalizeState(input = {}, now = Date.now(), settings = DEFAULT_SETTINGS) {
   const raw = input && typeof input === "object" ? input : {};
   const mode = normalizeMode(raw.mode);
-  const previousMode = normalizeMode(raw.previousMode, MODES.work);
+  const previousMode = normalizePreviousMode(raw.previousMode);
   const currentSessionStart = Math.max(0, toFiniteNumber(raw.currentSessionStart, now));
   const fallbackDuration = getDurationForMode(mode, settings, previousMode);
   let currentSessionEnd = toFiniteNumber(raw.currentSessionEnd, currentSessionStart + fallbackDuration);
@@ -71,7 +88,7 @@ export function normalizeState(input = {}, now = Date.now(), settings = DEFAULT_
     currentSessionEnd,
     lastReminderAt: Math.max(0, toFiniteNumber(raw.lastReminderAt, DEFAULT_STATE.lastReminderAt)),
     snoozedUntil: Math.max(0, toFiniteNumber(raw.snoozedUntil, DEFAULT_STATE.snoozedUntil)),
-    notificationOpen: Boolean(raw.notificationOpen),
+    notificationOpen: normalizeBoolean(raw.notificationOpen, DEFAULT_STATE.notificationOpen),
     notificationTabId:
       raw.notificationTabId === null || raw.notificationTabId === undefined
         ? null
@@ -79,7 +96,7 @@ export function normalizeState(input = {}, now = Date.now(), settings = DEFAULT_
     reminderKind: raw.reminderKind === "due" || raw.reminderKind === "test" ? raw.reminderKind : null
   };
 
-  if (Boolean(raw.preserveSessionEnd)) {
+  if (normalizeBoolean(raw.preserveSessionEnd, false)) {
     normalized.preserveSessionEnd = true;
   }
 
@@ -112,12 +129,12 @@ async function writeToStorage(area, key, value) {
   return value;
 }
 
-export async function readSettings() {
+export async function readSettings({ persistIfMissing = true } = {}) {
   const area = getChromeStorageArea("sync");
   const rawSettings = await readFromStorage(area, STORAGE_KEYS.settings, null);
   const normalizedSettings = normalizeSettings(rawSettings ?? DEFAULT_SETTINGS);
 
-  if (rawSettings == null) {
+  if (rawSettings == null && persistIfMissing) {
     await writeToStorage(area, STORAGE_KEYS.settings, normalizedSettings);
   }
 
@@ -131,28 +148,32 @@ export async function writeSettings(input) {
   return normalizedSettings;
 }
 
-export async function readState(now = Date.now(), settings = null) {
+export async function readState(now = Date.now(), settings = null, { persistIfMissing = true } = {}) {
   const area = getChromeStorageArea("local");
   const effectiveSettings = settings ?? (await readSettings());
   const rawState = await readFromStorage(area, STORAGE_KEYS.state, null);
 
   if (rawState == null) {
-    return createInitialState(now, effectiveSettings);
+    const initialState = createInitialState(now, effectiveSettings);
+    if (persistIfMissing) {
+      await writeState(initialState, effectiveSettings);
+    }
+    return initialState;
   }
 
   return normalizeState(rawState, now, effectiveSettings);
 }
 
-export async function writeState(input) {
+export async function writeState(input, settings = DEFAULT_SETTINGS) {
   const area = getChromeStorageArea("local");
-  const normalizedState = normalizeState(input ?? DEFAULT_STATE);
+  const normalizedState = normalizeState(input ?? DEFAULT_STATE, Date.now(), settings);
   await writeToStorage(area, STORAGE_KEYS.state, normalizedState);
   return normalizedState;
 }
 
-export async function loadSnapshot(now = Date.now()) {
-  const settings = await readSettings();
-  const state = await readState(now, settings);
+export async function loadSnapshot(now = Date.now(), { persistIfMissing = true } = {}) {
+  const settings = await readSettings({ persistIfMissing });
+  const state = await readState(now, settings, { persistIfMissing });
   return { settings, state };
 }
 

@@ -79,9 +79,9 @@ export function parseTimeToMinutes(timeStr, fallbackStr) {
     if (typeof str !== "string") return null;
     const parts = str.split(":");
     if (parts.length !== 2) return null;
-    const hours = Number.parseInt(parts[0], 10);
-    const minutes = Number.parseInt(parts[1], 10);
-    if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+    const hours = Number(parts[0]);
+    const minutes = Number(parts[1]);
+    if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
     return hours * 60 + minutes;
   };
 

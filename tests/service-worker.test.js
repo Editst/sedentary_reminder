@@ -25,6 +25,8 @@ const captured = {
   badgeText: "",
   badgeColor: "",
   onAlarm: null,
+  onInstalled: null,
+  onStartup: null,
   onNotificationClicked: null,
   tabsQueried: [],
   tabsRemoved: [],
@@ -106,8 +108,8 @@ before(async () => {
     runtime: {
       getURL: (p) => `chrome-extension://fake/${p}`,
       onMessage: { addListener: (fn) => { captured.onMessage = fn; } },
-      onInstalled: { addListener: () => {} },
-      onStartup: { addListener: () => {} }
+      onInstalled: { addListener: (fn) => { captured.onInstalled = fn; } },
+      onStartup: { addListener: (fn) => { captured.onStartup = fn; } }
     },
     windows: {
       update: async (winId, opts) => {
@@ -697,6 +699,7 @@ describe("badge tick alarm lifecycle", () => {
     };
     captured.alarmsCreated = [];
 
+    await sendMessage({ type: MESSAGE_TYPES.pause });
     await sendMessage({ type: MESSAGE_TYPES.resume });
 
     const badgeTick = captured.alarmsCreated.find((a) => a.name === "time-reminder-badge-tick");
@@ -1178,5 +1181,89 @@ describe("Unknown message type handling", () => {
     const res = await sendMessage({ type: "TOTALLY_UNKNOWN" });
     assert.equal(res.ok, false, "should report failure");
     assert.ok(res.error, "should include error message");
+  });
+});
+
+describe("runtime initialization persistence", () => {
+  it("persists missing settings and initial state during installation", async () => {
+    clearObject(syncStore);
+    clearObject(localStore);
+
+    await captured.onInstalled();
+
+    assert.ok(syncStore[STORAGE_KEYS.settings], "settings should be persisted");
+    assert.ok(localStore[STORAGE_KEYS.state], "initial state should be persisted");
+    assert.ok(
+      localStore[STORAGE_KEYS.state].currentSessionEnd > localStore[STORAGE_KEYS.state].currentSessionStart,
+      "initial state should have a valid session range"
+    );
+  });
+
+  it("keeps GET_STATUS read-only even when storage is empty", async () => {
+    clearObject(syncStore);
+    clearObject(localStore);
+    let writes = 0;
+    const originalSyncSet = globalThis.chrome.storage.sync.set;
+    const originalLocalSet = globalThis.chrome.storage.local.set;
+    globalThis.chrome.storage.sync.set = async (data) => {
+      writes++;
+      return originalSyncSet(data);
+    };
+    globalThis.chrome.storage.local.set = async (data) => {
+      writes++;
+      return originalLocalSet(data);
+    };
+
+    try {
+      const res = await sendMessage({ type: MESSAGE_TYPES.getStatus });
+      assert.equal(res.ok, true);
+      assert.equal(writes, 0, "GET_STATUS must not initialize storage");
+    } finally {
+      globalThis.chrome.storage.sync.set = originalSyncSet;
+      globalThis.chrome.storage.local.set = originalLocalSet;
+    }
+  });
+});
+
+describe("command admission guards", () => {
+  it("ignores a repeated pause instead of corrupting previousMode", async () => {
+    await sendMessage({ type: MESSAGE_TYPES.pause });
+    await sendMessage({ type: MESSAGE_TYPES.pause });
+    const res = await sendMessage({ type: MESSAGE_TYPES.resume });
+
+    assert.equal(res.ok, true);
+    assert.equal(localStore[STORAGE_KEYS.state].mode, MODES.work);
+  });
+
+  it("ignores resume outside paused mode", async () => {
+    const before = { ...localStore[STORAGE_KEYS.state] };
+    const res = await sendMessage({ type: MESSAGE_TYPES.resume });
+
+    assert.equal(res.ok, true);
+    assert.deepEqual(localStore[STORAGE_KEYS.state], before);
+  });
+
+  it("ignores skip before work is due", async () => {
+    const before = { ...localStore[STORAGE_KEYS.state] };
+    const res = await sendMessage({ type: MESSAGE_TYPES.skip });
+
+    assert.equal(res.ok, true);
+    assert.deepEqual(localStore[STORAGE_KEYS.state], before);
+  });
+
+  it("ignores skip during a break", async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.shortBreak,
+      currentSessionStart: now,
+      currentSessionEnd: now + 5 * 60 * 1000
+    };
+    const before = { ...localStore[STORAGE_KEYS.state] };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.skip });
+
+    assert.equal(res.ok, true);
+    assert.deepEqual(localStore[STORAGE_KEYS.state], before);
   });
 });

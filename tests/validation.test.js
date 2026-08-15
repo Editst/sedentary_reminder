@@ -7,10 +7,8 @@ test("returns defaults for empty input", () => {
   assert.deepEqual(normalizeSettings(), DEFAULT_SETTINGS);
 });
 
-test("allows empty scheduleDays if explicitly provided", () => {
+test("falls back to default days when scheduleDays is empty", () => {
   const res = normalizeSettings({ scheduleDays: [] });
-  // Now we want empty scheduleDays to fallback to DEFAULT_SETTINGS.scheduleDays (which is 1-5)
-  // because an empty scheduleDays means the user didn't select any days, which is invalid.
   assert.deepEqual(res.scheduleDays, [1, 2, 3, 4, 5]);
 });
 
@@ -22,6 +20,20 @@ test("normalizes boolean strings correctly", () => {
 test("invalid booleans fallback to default", () => {
   assert.equal(normalizeSettings({ scheduleEnabled: "invalid" }).scheduleEnabled, false);
   assert.equal(normalizeSettings({ enabled: "invalid" }).enabled, true); // enabled default is true
+});
+
+test("rejects partial and fractional numeric inputs", () => {
+  const settings = normalizeSettings({
+    workMinutes: "5minutes",
+    shortBreakMinutes: "5.5",
+    longBreakEvery: 2.5,
+    snoozeMinutesOptions: ["5minutes", "10.5"]
+  });
+
+  assert.equal(settings.workMinutes, DEFAULT_SETTINGS.workMinutes);
+  assert.equal(settings.shortBreakMinutes, DEFAULT_SETTINGS.shortBreakMinutes);
+  assert.equal(settings.longBreakEvery, DEFAULT_SETTINGS.longBreakEvery);
+  assert.deepEqual(settings.snoozeMinutesOptions, DEFAULT_SETTINGS.snoozeMinutesOptions);
 });
 
 test("clamps numeric values to min and max boundaries", () => {

@@ -230,12 +230,14 @@ async function listReminderTabs() {
   return tabs.filter((tab) => isReminderUrl(tab.url));
 }
 async function removeTabsSafely(ids) {
-  if (!Array.isArray(ids) || ids.length === 0) {
+  const tabIds = Array.isArray(ids) ? ids : [ids];
+  const validIds = tabIds.filter((id) => Number.isInteger(id));
+  if (validIds.length === 0) {
     return;
   }
 
   try {
-    await globalThis.chrome.tabs.remove(ids);
+    await globalThis.chrome.tabs.remove(validIds.length === 1 ? validIds[0] : validIds);
   } catch (error) {
     console.warn("[removeTabsSafely] chrome.tabs.remove failed:", error);
   }
@@ -336,11 +338,7 @@ async function closeReminderTab(tabId) {
     return;
   }
 
-  try {
-    await globalThis.chrome.tabs.remove(tabId);
-  } catch (error) {
-    console.warn(`[closeReminderTab] chrome.tabs.remove failed for tab ${tabId}:`, error);
-  }
+  await removeTabsSafely(tabId);
 }
 
 async function createSystemNotification(settings, title, message) {
@@ -406,7 +404,7 @@ async function disableRuntime(state, settings) {
 
   const nextState = clearResumeLock(resetRuntimeState(state));
   nextState.snoozedUntil = 0;
-  await writeState(nextState);
+  await writeState(nextState, settings);
   await updateActionBadge(nextState, settings);
   return buildStatus(nextState, settings);
 }
@@ -541,6 +539,11 @@ function handlePause() {
       return disableRuntime(snapshot.state, snapshot.settings);
     }
 
+    const status = buildStatus(snapshot.state, snapshot.settings, now);
+    if (!status.canPause) {
+      return status;
+    }
+
     const remainingMs = getRemainingMs(snapshot.state, now);
     const nextState = resetRuntimeState(pauseState(snapshot.state));
     nextState.pausedRemainingMs = remainingMs;
@@ -558,6 +561,11 @@ function handleResume() {
     const snapshot = await loadSnapshot(now);
     if (!snapshot.settings.enabled) {
       return disableRuntime(snapshot.state, snapshot.settings);
+    }
+
+    const status = buildStatus(snapshot.state, snapshot.settings, now);
+    if (!status.canResume) {
+      return status;
     }
 
     const nextState = resumeState(snapshot.state);
@@ -590,7 +598,7 @@ function isAllowedSnooze(status, minutes, settings) {
 }
 
 async function commitTransition(snapshot, nextState, alarmTarget, now) {
-  await writeState(nextState);
+  await writeState(nextState, snapshot.settings);
   await closeReminderTab(snapshot.state.notificationTabId);
   await scheduleMainAlarm(alarmTarget);
   await updateActionBadge(nextState, snapshot.settings, now);
@@ -659,7 +667,13 @@ function handleSkip() {
       return disableRuntime(snapshot.state, snapshot.settings);
     }
 
-    if (snapshot.state.reminderKind === REMINDER_KINDS.test) {
+    const status = buildStatus(snapshot.state, snapshot.settings, now);
+    const canDismissTest = snapshot.state.reminderKind === REMINDER_KINDS.test && status.hasActiveReminder;
+    if (!canDismissTest && !status.canStartBreak) {
+      return status;
+    }
+
+    if (canDismissTest) {
       const nextState = resetRuntimeState(snapshot.state);
       const target = nextState.snoozedUntil > now ? nextState.snoozedUntil : nextState.currentSessionEnd;
       return commitTransition(snapshot, nextState, target, now);
@@ -700,7 +714,7 @@ async function handleMessage(message) {
     case MESSAGE_TYPES.getStatus:
       return (async () => {
         const now = Date.now();
-        const snapshot = await loadSnapshot(now);
+        const snapshot = await loadSnapshot(now, { persistIfMissing: false });
         return buildStatus(snapshot.state, snapshot.settings, now);
       })();
     case MESSAGE_TYPES.saveSettings:
@@ -710,8 +724,8 @@ async function handleMessage(message) {
     case MESSAGE_TYPES.resume:
       return handleResume();
     case MESSAGE_TYPES.snooze: {
-      const parsed = Number.parseInt(message.minutes, 10);
-      return handleSnooze(Number.isFinite(parsed) ? parsed : NaN);
+      const parsed = Number(message.minutes);
+      return handleSnooze(Number.isInteger(parsed) ? parsed : NaN);
     }
     case MESSAGE_TYPES.startBreak:
       return handleStartBreak();
