@@ -124,6 +124,10 @@ async function updateActionBadge(state, settings, now = Date.now()) {
   }
 }
 
+function normalizePreviousMode(state) {
+  return state.mode === MODES.paused ? state.previousMode : state.mode;
+}
+
 function buildStatus(state, settings, now = Date.now()) {
   const inSchedule = isWithinSchedule(settings, now);
   const nextScheduleStart = inSchedule ? now : getNextScheduleStartTime(settings, now);
@@ -131,7 +135,7 @@ function buildStatus(state, settings, now = Date.now()) {
   const due = inSchedule && (state.mode === MODES.work
     ? isSessionDue(state, now)
     : state.mode !== MODES.paused && state.currentSessionEnd <= now);
-  const effectiveMode = state.mode === MODES.paused ? state.previousMode : state.mode;
+  const effectiveMode = normalizePreviousMode(state);
   const hasActiveReminder = Boolean(state.notificationOpen && state.notificationTabId != null && state.reminderKind);
   const reminderIsDue = hasActiveReminder && state.reminderKind === REMINDER_KINDS.due;
   const reminderIsTest = hasActiveReminder && state.reminderKind === REMINDER_KINDS.test;
@@ -499,6 +503,10 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false, isBadgeTic
   return buildStatus(state, settings, now);
 }
 
+async function persistInitialSnapshotIfNeeded(now) {
+  await loadSnapshot(now, { persistIfMissing: true });
+}
+
 function reconcileRuntime({ openDueReminder = false, isBadgeTick = false } = {}) {
   return withStateLock(() => _reconcileRuntimeInner(Date.now(), { openDueReminder, isBadgeTick }));
 }
@@ -531,6 +539,19 @@ function handleSaveSettings(payload) {
   });
 }
 
+function isAllowedPause(status) {
+  return status.canPause;
+}
+
+function isAllowedResume(status) {
+  return status.canResume;
+}
+
+function isAllowedSkip(status, state) {
+  const canDismissTest = state.reminderKind === REMINDER_KINDS.test && status.hasActiveReminder;
+  return canDismissTest || status.canStartBreak;
+}
+
 function handlePause() {
   return withStateLock(async () => {
     const now = Date.now();
@@ -540,18 +561,14 @@ function handlePause() {
     }
 
     const status = buildStatus(snapshot.state, snapshot.settings, now);
-    if (!status.canPause) {
+    if (!isAllowedPause(status)) {
       return status;
     }
 
     const remainingMs = getRemainingMs(snapshot.state, now);
     const nextState = resetRuntimeState(pauseState(snapshot.state));
     nextState.pausedRemainingMs = remainingMs;
-    await writeState(nextState);
-    await closeReminderTab(snapshot.state.notificationTabId);
-    await globalThis.chrome.alarms.clear(MAIN_ALARM);
-    await updateActionBadge(nextState, snapshot.settings, now);
-    return buildStatus(nextState, snapshot.settings, now);
+    return commitTransition(snapshot, nextState, null, now);
   });
 }
 
@@ -564,7 +581,7 @@ function handleResume() {
     }
 
     const status = buildStatus(snapshot.state, snapshot.settings, now);
-    if (!status.canResume) {
+    if (!isAllowedResume(status)) {
       return status;
     }
 
@@ -588,8 +605,7 @@ function handleResume() {
     }
 
     nextState.preserveSessionEnd = true;
-    await writeState(nextState);
-    return _reconcileRuntimeInner(now, { openDueReminder: true });
+    return commitTransition(snapshot, nextState, nextState.currentSessionEnd, now);
   });
 }
 
@@ -598,9 +614,20 @@ function isAllowedSnooze(status, minutes, settings) {
 }
 
 async function commitTransition(snapshot, nextState, alarmTarget, now) {
-  await writeState(nextState, snapshot.settings);
+  await writeState(nextState);
   await closeReminderTab(snapshot.state.notificationTabId);
-  await scheduleMainAlarm(alarmTarget);
+  if (alarmTarget != null) {
+    await scheduleMainAlarm(alarmTarget);
+  } else {
+    await globalThis.chrome.alarms.clear(MAIN_ALARM);
+  }
+  
+  if (nextState.mode === MODES.paused) {
+    await stopBadgeTick();
+  } else {
+    await startBadgeTick();
+  }
+
   await updateActionBadge(nextState, snapshot.settings, now);
   return buildStatus(nextState, snapshot.settings, now);
 }
@@ -668,12 +695,11 @@ function handleSkip() {
     }
 
     const status = buildStatus(snapshot.state, snapshot.settings, now);
-    const canDismissTest = snapshot.state.reminderKind === REMINDER_KINDS.test && status.hasActiveReminder;
-    if (!canDismissTest && !status.canStartBreak) {
+    if (!isAllowedSkip(status, snapshot.state)) {
       return status;
     }
 
-    if (canDismissTest) {
+    if (snapshot.state.reminderKind === REMINDER_KINDS.test) {
       const nextState = resetRuntimeState(snapshot.state);
       const target = nextState.snoozedUntil > now ? nextState.snoozedUntil : nextState.currentSessionEnd;
       return commitTransition(snapshot, nextState, target, now);
@@ -709,6 +735,11 @@ function handleTestReminder() {
   });
 }
 
+function parseStrictInteger(value, fallback) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : fallback;
+}
+
 async function handleMessage(message) {
   switch (message?.type) {
     case MESSAGE_TYPES.getStatus:
@@ -724,8 +755,7 @@ async function handleMessage(message) {
     case MESSAGE_TYPES.resume:
       return handleResume();
     case MESSAGE_TYPES.snooze: {
-      const parsed = Number(message.minutes);
-      return handleSnooze(Number.isInteger(parsed) ? parsed : NaN);
+      return handleSnooze(parseStrictInteger(message.minutes, NaN));
     }
     case MESSAGE_TYPES.startBreak:
       return handleStartBreak();
@@ -741,13 +771,19 @@ async function handleMessage(message) {
 }
 
 globalThis.chrome.runtime.onInstalled.addListener(() => {
-  return reconcileRuntime({ openDueReminder: true }).catch((error) => {
+  return (async () => {
+    await persistInitialSnapshotIfNeeded(Date.now());
+    await reconcileRuntime({ openDueReminder: true });
+  })().catch((error) => {
     console.error("[onInstalled] bootstrapRuntime failed:", error);
   });
 });
 
 globalThis.chrome.runtime.onStartup.addListener(() => {
-  return reconcileRuntime({ openDueReminder: true }).catch((error) => {
+  return (async () => {
+    await persistInitialSnapshotIfNeeded(Date.now());
+    await reconcileRuntime({ openDueReminder: true });
+  })().catch((error) => {
     console.error("[onStartup] bootstrapRuntime failed:", error);
   });
 });

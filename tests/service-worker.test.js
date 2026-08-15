@@ -314,7 +314,7 @@ describe("handleSkip", () => {
     const res = await sendMessage({ type: MESSAGE_TYPES.skip });
     assert.equal(res.ok, true);
 
-    const alarm = captured.alarmsCreated.at(-1);
+    const alarm = captured.alarmsCreated.find((a) => a.name === 'time-reminder-main-alarm');
     assert.ok(alarm, "alarm should be scheduled after skip");
 
     const delay = alarm.when - now;
@@ -390,7 +390,7 @@ describe("tabs.onRemoved fallback alarm", () => {
     assert.equal(state.notificationTabId, null, "notificationTabId should be null");
     assert.equal(state.reminderKind, null, "reminderKind should be null");
 
-    const alarm = captured.alarmsCreated.at(-1);
+    const alarm = captured.alarmsCreated.find((a) => a.name === 'time-reminder-main-alarm');
     assert.ok(alarm, "a fallback alarm should be scheduled after due reminder tab is closed");
     assert.equal(alarm.name, MAIN_ALARM);
     assert.ok(alarm.when > now, "alarm time should be in the future");
@@ -618,7 +618,7 @@ describe("snooze preserves snoozedUntil", () => {
       `snoozedUntil should be ~5min from now, got ${Math.round((state.snoozedUntil - now) / 1000)}s`
     );
 
-    const alarm = captured.alarmsCreated.at(-1);
+    const alarm = captured.alarmsCreated.find((a) => a.name === 'time-reminder-main-alarm');
     assert.ok(alarm, "an alarm should be scheduled for the snooze");
     assert.equal(alarm.name, MAIN_ALARM);
     const alarmDelay = alarm.when - now;
