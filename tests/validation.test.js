@@ -7,6 +7,11 @@ test("returns defaults for empty input", () => {
   assert.deepEqual(normalizeSettings(), DEFAULT_SETTINGS);
 });
 
+test("allows empty scheduleDays if explicitly provided", () => {
+    const res = normalizeSettings({ scheduleDays: [] });
+    assert.deepEqual(res.scheduleDays, []);
+  });
+
 test("clamps numeric values to min and max boundaries", () => {
   const result = normalizeSettings({
     workMinutes: -10,

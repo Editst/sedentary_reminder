@@ -413,49 +413,6 @@ describe("break session completion", () => {
 // #9 Badge 状态更新
 // ------------------------------------------------------------------
 
-describe("action badge updates", () => {
-  it("should update badge text on status sync", { timeout: 3000 }, async () => {
-    const now = Date.now();
-    localStore[STORAGE_KEYS.state] = {
-      ...DEFAULT_STATE,
-      mode: MODES.work,
-      currentSessionStart: now,
-      currentSessionEnd: now + 25 * 60 * 1000
-    };
-
-    await sendMessage({ type: MESSAGE_TYPES.getStatus });
-    assert.ok(captured.badgeText.length > 0, "badgeText should be set");
-  });
-});
-
-// ------------------------------------------------------------------
-// #10 getStatus 在 due 状态下保证 Alarm 存活 (防止假死)
-// ------------------------------------------------------------------
-
-describe("getStatus alarm retention on due session", () => {
-  it("schedules a retry alarm when getStatus is called during due work session without open reminder", { timeout: 3000 }, async () => {
-    const now = Date.now();
-    localStore[STORAGE_KEYS.state] = {
-      ...DEFAULT_STATE,
-      mode: MODES.work,
-      currentSessionStart: now - 50 * 60 * 1000,
-      currentSessionEnd: now - 5 * 60 * 1000,
-      notificationOpen: false,
-      notificationTabId: null,
-      reminderKind: null
-    };
-    captured.alarmsCreated = [];
-
-    const res = await sendMessage({ type: MESSAGE_TYPES.getStatus });
-    assert.equal(res.ok, true);
-    assert.equal(res.data.due, true);
-
-    const alarm = captured.alarmsCreated.find((a) => a.name === MAIN_ALARM);
-    assert.ok(alarm, "retry alarm should be scheduled so closing popup does not leave the timer stranded");
-    assert.ok(alarm.when > now, "alarm when timestamp should be in the near future");
-  });
-});
-
 // ------------------------------------------------------------------
 // #11 重新启用冷启动保护
 // ------------------------------------------------------------------
@@ -727,7 +684,7 @@ describe("badge tick alarm lifecycle", () => {
     };
     captured.alarmsCreated = [];
 
-    await sendMessage({ type: MESSAGE_TYPES.getStatus });
+    await sendMessage({ type: MESSAGE_TYPES.resume });
 
     const badgeTick = captured.alarmsCreated.find((a) => a.name === "time-reminder-badge-tick");
     assert.ok(badgeTick, "badge-tick alarm should be created during active work");
@@ -739,11 +696,12 @@ describe("badge tick alarm lifecycle", () => {
     localStore[STORAGE_KEYS.state] = {
       ...DEFAULT_STATE,
       mode: MODES.paused,
-      previousMode: MODES.work
+      previousMode: MODES.work,
+      pausedRemainingMs: 15 * 60 * 1000
     };
     captured.alarmsCreated = [];
 
-    await sendMessage({ type: MESSAGE_TYPES.getStatus });
+    await sendMessage({ type: MESSAGE_TYPES.saveSettings, settings: DEFAULT_SETTINGS });
 
     const badgeTick = captured.alarmsCreated.find((a) => a.name === "time-reminder-badge-tick");
     assert.equal(badgeTick, undefined, "badge-tick alarm should NOT exist when paused");
@@ -753,7 +711,7 @@ describe("badge tick alarm lifecycle", () => {
     syncStore[STORAGE_KEYS.settings] = { ...DEFAULT_SETTINGS, enabled: false };
     captured.alarmsCreated = [];
 
-    await sendMessage({ type: MESSAGE_TYPES.getStatus });
+    await sendMessage({ type: MESSAGE_TYPES.resume });
 
     const badgeTick = captured.alarmsCreated.find((a) => a.name === "time-reminder-badge-tick");
     assert.equal(badgeTick, undefined, "badge-tick alarm should NOT exist when disabled");
@@ -814,3 +772,122 @@ describe("syncReminderWindowState preserves snoozedUntil", () => {
   });
 });
 
+
+// ------------------------------------------------------------------
+// Issue 1: openReminderTab failures should schedule fallback alarm
+// ------------------------------------------------------------------
+
+describe("openReminderTab failures fallback alarm", () => {
+  it("schedules retry alarm when reminder window creation fails completely", { timeout: 3000 }, async () => {
+    // Mock failure for both tabs.create and windows.create
+    const origTabsCreate = globalThis.chrome.tabs.create;
+    const origWindowsCreate = globalThis.chrome.windows.create;
+    globalThis.chrome.tabs.create = async () => { throw new Error("no tabs"); };
+    globalThis.chrome.windows.create = async () => { throw new Error("no windows"); };
+
+    try {
+      const now = Date.now();
+      localStore[STORAGE_KEYS.state] = {
+        ...DEFAULT_STATE,
+        mode: MODES.work,
+        currentSessionStart: now - 50 * 60 * 1000,
+        currentSessionEnd: now - 5 * 60 * 1000
+      };
+      captured.alarmsCreated = [];
+
+      // Trigger main alarm which should normally open reminder
+      await captured.onAlarm({ name: MAIN_ALARM });
+      await new Promise((r) => setTimeout(r, 50));
+
+      const state = localStore[STORAGE_KEYS.state];
+      assert.equal(state.notificationOpen, false, "failed open must not mark notification as open");
+
+      const alarm = captured.alarmsCreated.find((a) => a.name === MAIN_ALARM);
+      assert.ok(alarm, "retry alarm must be scheduled");
+      assert.ok(alarm.when > now, "retry alarm when timestamp should be in the future");
+    } finally {
+      // Restore mocks
+      globalThis.chrome.tabs.create = origTabsCreate;
+      globalThis.chrome.windows.create = origWindowsCreate;
+    }
+  });
+});
+
+// ------------------------------------------------------------------
+// Issue 2: saveSettings should preserve paused state
+// ------------------------------------------------------------------
+
+describe("saveSettings preserves paused state", () => {
+  it("entering schedule window preserves paused state and remaining ms", { timeout: 3000 }, async () => {
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.paused,
+      previousMode: MODES.work,
+      pausedRemainingMs: 15 * 60 * 1000
+    };
+
+    const res = await sendMessage({
+      type: MESSAGE_TYPES.saveSettings,
+      settings: {
+        ...DEFAULT_SETTINGS,
+        scheduleEnabled: true,
+        scheduleStartTime: "00:00",
+        scheduleEndTime: "23:59",
+        scheduleDays: [0, 1, 2, 3, 4, 5, 6]
+      }
+    });
+
+    assert.equal(res.ok, true);
+    assert.equal(res.data.state.mode, MODES.paused, "paused must survive settings save");
+    assert.equal(res.data.state.pausedRemainingMs, 15 * 60 * 1000, "pausedRemainingMs must survive settings save");
+  });
+});
+
+// ------------------------------------------------------------------
+// Issue 3: getStatus performs zero storage writes (CQS)
+// ------------------------------------------------------------------
+
+describe("getStatus CQS compliance", () => {
+  it("getStatus performs zero storage writes", { timeout: 3000 }, async () => {
+    let writes = 0;
+    const origSet = globalThis.chrome.storage.local.set;
+    globalThis.chrome.storage.local.set = async (data) => {
+      writes++;
+      return origSet(data);
+    };
+
+    try {
+      await sendMessage({ type: MESSAGE_TYPES.getStatus });
+      assert.equal(writes, 0, "pure query must not write storage");
+    } finally {
+      globalThis.chrome.storage.local.set = origSet;
+    }
+  });
+});
+
+// ------------------------------------------------------------------
+// Issue 5: withStateLock timeout recovery
+// ------------------------------------------------------------------
+
+describe("withStateLock timeout recovery", () => {
+  it("state lock recovers when an operation hangs", { timeout: 6000 }, async () => {
+    const origGet = globalThis.chrome.storage.local.get;
+    
+    // Mock get to hang indefinitely
+    globalThis.chrome.storage.local.get = async () => new Promise(() => {}); 
+    
+    try {
+      const res = await sendMessage({ type: MESSAGE_TYPES.pause });
+      console.log("timeout test res:", res);
+      assert.equal(res.ok, false);
+      assert.ok((res.error || "").toLowerCase().includes("time"), "must reject with timeout error");
+
+      // Now restore and check if lock is still usable
+      globalThis.chrome.storage.local.get = origGet;
+      const res2 = await sendMessage({ type: MESSAGE_TYPES.pause });
+      assert.equal(res2.ok, true, "subsequent operations should succeed");
+    } finally {
+      globalThis.chrome.storage.local.get = origGet;
+    }
+  });
+});

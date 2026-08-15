@@ -146,24 +146,10 @@ export async function readState(now = Date.now(), settings = null) {
   const rawState = await readFromStorage(area, STORAGE_KEYS.state, null);
 
   if (rawState == null) {
-    const initialState = createInitialState(now, effectiveSettings);
-    if (area) {
-      await writeToStorage(area, STORAGE_KEYS.state, initialState);
-    } else {
-      MEMORY.state = initialState;
-    }
-    return initialState;
+    return createInitialState(now, effectiveSettings);
   }
 
-  const normalizedState = normalizeState(rawState, now, effectiveSettings);
-
-  if (area) {
-    await writeToStorage(area, STORAGE_KEYS.state, normalizedState);
-  } else {
-    MEMORY.state = normalizedState;
-  }
-
-  return normalizedState;
+  return normalizeState(rawState, now, effectiveSettings);
 }
 
 export async function writeState(input) {

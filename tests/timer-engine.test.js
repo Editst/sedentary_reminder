@@ -167,3 +167,12 @@ test("formatSeconds: formats seconds into MM:SS", () => {
   assert.equal(formatSeconds(-10), "00:00");
   assert.equal(formatSeconds(NaN), "00:00");
 });
+
+test("createNextWorkState can optionally increment cycleCount", () => {
+  const base = { cycleCount: 1 };
+  const s1 = createNextWorkState(base, { workMinutes: 45 }, 1000);
+  assert.equal(s1.cycleCount, 1, "default is not to increment");
+
+  const s2 = createNextWorkState(base, { workMinutes: 45 }, 1000, { countCycle: true });
+  assert.equal(s2.cycleCount, 2, "increments when countCycle is true");
+});

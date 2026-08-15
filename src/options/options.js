@@ -33,7 +33,10 @@ function updateScheduleVisibility() {
 function getSelectedDays() {
   const checkedBoxes = document.querySelectorAll('input[name="scheduleDay"]:checked');
   const days = Array.from(checkedBoxes).map((item) => Number.parseInt(item.value, 10));
-  return days.length > 0 ? days : [1, 2, 3, 4, 5];
+  if (days.length === 0) {
+    throw new Error("请至少选择一个生效星期，否则日程永远不会生效。");
+  }
+  return days;
 }
 
 function setSelectedDays(days = [1, 2, 3, 4, 5]) {

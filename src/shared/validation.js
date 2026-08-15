@@ -45,7 +45,7 @@ function normalizeScheduleDays(days, fallback = [1, 2, 3, 4, 5]) {
     .filter((item) => Number.isInteger(item) && item >= 0 && item <= 6);
 
   const deduplicated = Array.from(new Set(validDays)).sort((a, b) => a - b);
-  return deduplicated.length > 0 ? deduplicated : fallback;
+  return deduplicated;
 }
 
 function parseRawSnoozeOptions(input) {

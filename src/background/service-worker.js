@@ -16,7 +16,19 @@ import { loadSnapshot, writeSettings, writeState } from "../shared/storage.js";
 let _stateLock = Promise.resolve();
 
 function withStateLock(fn) {
-  const next = _stateLock.then(fn, fn);
+  const task = async () => {
+    let timerId;
+    const timeout = new Promise((_, reject) => {
+      timerId = setTimeout(() => reject(new Error("State lock operation timed out")), 5000);
+    });
+    try {
+      return await Promise.race([fn(), timeout]);
+    } finally {
+      clearTimeout(timerId);
+    }
+  };
+
+  const next = _stateLock.then(task, task);
   _stateLock = next.catch(() => {});
   return next;
 }
@@ -297,14 +309,18 @@ async function openReminderTab(state) {
     }
   }
 
-  if (tab) {
-    await focusTab(tab);
+  if (!tab) {
+    const nextState = resetRuntimeState(state);
+    await writeState(nextState);
+    return nextState;
   }
+
+  await focusTab(tab);
 
   const nextState = {
     ...state,
     notificationOpen: true,
-    notificationTabId: tab?.id ?? null
+    notificationTabId: tab.id ?? null
   };
   await writeState(nextState);
   return nextState;
@@ -456,10 +472,10 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false } = {}) {
     if (openDueReminder) {
       await globalThis.chrome.alarms.clear(MAIN_ALARM);
       state = await showReminder(state, settings, now, REMINDER_KINDS.due);
-    } else {
-      if (!state.notificationOpen) {
-        await scheduleMainAlarm(now + 60 * 1000);
-      }
+    }
+    
+    if (!state.notificationOpen) {
+      await scheduleMainAlarm(now + 60 * 1000);
     }
     await startBadgeTick();
     await updateActionBadge(state, settings, now);
@@ -501,10 +517,11 @@ function handleSaveSettings(payload) {
     const nowInSchedule = isWithinSchedule(settings, now);
     let state = snapshot.state;
 
-    if ((!wasEnabled && settings.enabled) || (!wasInSchedule && nowInSchedule)) {
+    if (state.mode !== MODES.paused && ((!wasEnabled && settings.enabled) || (!wasInSchedule && nowInSchedule))) {
       state = createInitialState(now, settings);
     } else {
-      state = applySettingsToState(clearResumeLock(snapshot.state), settings);
+      const baseState = state.mode === MODES.paused ? snapshot.state : clearResumeLock(snapshot.state);
+      state = applySettingsToState(baseState, settings);
     }
 
     await writeState(state);
@@ -644,7 +661,7 @@ function handleSkip() {
     }
 
     const nextState = resetRuntimeState({
-      ...clearResumeLock(createNextWorkState(snapshot.state, snapshot.settings, now)),
+      ...clearResumeLock(createNextWorkState(snapshot.state, snapshot.settings, now, { countCycle: true })),
       lastReminderAt: now
     });
     await writeState(nextState);
@@ -672,7 +689,11 @@ function handleTestReminder() {
 async function handleMessage(message) {
   switch (message?.type) {
     case MESSAGE_TYPES.getStatus:
-      return reconcileRuntime({ openDueReminder: false });
+      return (async () => {
+        const now = Date.now();
+        const snapshot = await loadSnapshot(now);
+        return buildStatus(snapshot.state, snapshot.settings, now);
+      })();
     case MESSAGE_TYPES.saveSettings:
       return handleSaveSettings(message.settings);
     case MESSAGE_TYPES.pause:

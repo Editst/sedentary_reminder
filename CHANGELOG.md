@@ -50,15 +50,22 @@
 #### Fix
 - **service-worker**: 修复延后提醒（Snooze 5/10 分钟）实际仅延后约 1 分钟的 P0 级缺陷。根因：`handleSnooze` 中 `resetRuntimeState` 在 `applySnooze` 之后执行，将刚计算的 `snoozedUntil` 盲目覆写为 0，导致无 Alarm 被调度，1 分钟后兜底重试逻辑重新弹出提醒窗口。
 - **service-worker**: 修复 Extension Badge 倒计时不自动更新、仅在点击 Popup 时才刷新的缺陷。根因：MV3 Service Worker 在无事件时休眠，整个 session 生命周期内只有一个终点 Alarm，中间无任何定时事件唤醒 Service Worker 刷新 Badge。
+- **service-worker**: 修复保存设置时可能意外清除 `pausedRemainingMs` 与暂停状态的问题。
+- **options**: 修复空星期选择会被静默回退至周一到周五的问题，现改为阻断空提交并抛出错误提示。
+- **timer-engine**: 消除硬编码的 540 和 1080 魔法参数，统一向 `DEFAULT_SETTINGS` 对齐。
 
 #### Refactor
 - **service-worker**: 将 `snoozedUntil` 从 `resetRuntimeState` 的管辖范围移除。`snoozedUntil` 属于调度逻辑状态而非运行时/UI 状态，不应被窗口清理函数盲目重置。仅在 `disableRuntime` 中显式清零。此变更同时修复了两个潜在缺陷：关闭测试提醒（test reminder skip）时误清除进行中的 snooze 延后；`syncReminderWindowState` 窗口同步时误清除 snooze 计划。
+- **service-worker**: 核心状态锁 `withStateLock` 增加 5000 毫秒熔断机制与 `Promise.race` 恢复，避免深层阻塞死锁。
+- **service-worker**: `getStatus` 纯函数化 (CQS)，消除读查询带来的副作用写。
+- **timer-engine**: `createNextWorkState` 增加 `countCycle` 选项支持，在跳过（Skip）操作时累计循环次数，防止跳过漏洞。
 
 #### Feat
 - **service-worker**: 新增 `time-reminder-badge-tick` 周期性 Chrome Alarm（每分钟触发），在计时器活跃期间自动唤醒 Service Worker 刷新 Badge 倒计时。暂停/停止/禁用/非生效时段自动停止，零冗余唤醒。
+- **manifest**: 安全加固，彻底移除 `web_accessible_resources` 节点，缩小指纹探测暴露面。
 
 #### Test
-- 新增 8 项回归测试用例（snooze 5min/10min 状态验证、test reminder skip 不破坏 snoozedUntil、badge-tick alarm 生命周期与触发验证、syncReminderWindowState 保留 snoozedUntil），测试总数 53 项。
+- **tdd**: 大规模重构 `tests/service-worker.test.js`，淘汰依赖 `getStatus` 副作用此时序的易碎用例，替换为纯净的直接断言。新增多项核心集成/单元回归用例（snooze 保持、test reminder 幂等、锁恢复、CQS 断言、manifest.json 暴露检测、skip 周期累加等），测试套件总数突破 98 项且 100% 绿灯通过。
 
 ### [1.4.0] - 2026-08-08
 

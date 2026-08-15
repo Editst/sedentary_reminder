@@ -1,4 +1,4 @@
-import { DEFAULT_STATE, MODES } from "./constants.js";
+import { DEFAULT_STATE, MODES, DEFAULT_SETTINGS } from "./constants.js";
 
 export function createInitialState(now, settings) {
   return {
@@ -25,10 +25,12 @@ export function createNextBreakState(state, settings, now) {
   };
 }
 
-export function createNextWorkState(state, settings, now) {
+export function createNextWorkState(state, settings, now, options = { countCycle: false }) {
+  const newCycleCount = options.countCycle ? state.cycleCount + 1 : state.cycleCount;
   return {
     ...state,
     mode: MODES.work,
+    cycleCount: newCycleCount,
     currentSessionStart: now,
     currentSessionEnd: now + settings.workMinutes * 60 * 1000,
     snoozedUntil: 0
@@ -72,15 +74,23 @@ export function resumeState(state) {
   };
 }
 
-function parseTimeToMinutes(timeStr, fallback = 0) {
+function parseTimeToMinutes(timeStr, fallbackStr) {
   if (typeof timeStr !== "string") {
-    return fallback;
+    if (fallbackStr === undefined) return 0;
+    return parseTimeToMinutes(fallbackStr);
   }
-  const parts = timeStr.split(":").map((item) => Number.parseInt(item, 10));
-  if (parts.length !== 2 || Number.isNaN(parts[0]) || Number.isNaN(parts[1])) {
-    return fallback;
+  const parts = timeStr.split(":");
+  if (parts.length !== 2) {
+    if (fallbackStr === undefined) return 0;
+    return parseTimeToMinutes(fallbackStr);
   }
-  return parts[0] * 60 + parts[1];
+  const hours = Number.parseInt(parts[0], 10);
+  const minutes = Number.parseInt(parts[1], 10);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+    if (fallbackStr === undefined) return 0;
+    return parseTimeToMinutes(fallbackStr);
+  }
+  return hours * 60 + minutes;
 }
 
 export function isWithinSchedule(settings, nowMs = Date.now()) {
@@ -93,8 +103,8 @@ export function isWithinSchedule(settings, nowMs = Date.now()) {
     return true;
   }
 
-  const startMinutes = parseTimeToMinutes(settings.scheduleStartTime, 540); // 09:00 default
-  const endMinutes = parseTimeToMinutes(settings.scheduleEndTime, 1080); // 18:00 default
+  const startMinutes = parseTimeToMinutes(settings.scheduleStartTime, DEFAULT_SETTINGS.scheduleStartTime);
+  const endMinutes = parseTimeToMinutes(settings.scheduleEndTime, DEFAULT_SETTINGS.scheduleEndTime);
 
   if (startMinutes === endMinutes) {
     return true;
@@ -137,7 +147,7 @@ export function getNextScheduleStartTime(settings, nowMs = Date.now()) {
     return nowMs;
   }
 
-  const startMinutes = parseTimeToMinutes(settings.scheduleStartTime, 540);
+  const startMinutes = parseTimeToMinutes(settings.scheduleStartTime, DEFAULT_SETTINGS.scheduleStartTime);
   const startH = Math.floor(startMinutes / 60);
   const startM = startMinutes % 60;
 
