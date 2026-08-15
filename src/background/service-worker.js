@@ -354,7 +354,7 @@ async function createSystemNotification(settings, title, message) {
       title,
       message,
       priority: 2,
-      requireInteraction: true
+      requireInteraction: false
     });
   } catch (error) {
     console.warn("[createSystemNotification] chrome.notifications failed:", error);

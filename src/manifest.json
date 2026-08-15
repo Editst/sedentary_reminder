@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "久坐提醒",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "description": "工作计时与健康休息提醒扩展。",
   "icons": {
     "16": "assets/icons/time-reminder-16.png",
