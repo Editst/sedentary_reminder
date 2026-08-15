@@ -6,7 +6,7 @@
 
 - 支持工作、短休息、长休息三段节奏切换
 - 支持自定义工作时长、短休息时长、长休息时长
-- 支持设置“每几次短休息后进入一次长休息”
+- 支持设置“每几次短休息后进入一次长休息”（跳过休息亦会计入长休息进度）
 - 支持**生效时间范围**（`scheduleStartTime` 至 `scheduleEndTime`）与**工作日星期多选**（周一至周日），非生效时段静默休眠并自动定时唤醒
 - 支持系统通知 + 插件提醒页双提醒方式
 - 支持提醒页自动关闭时长配置
@@ -16,6 +16,7 @@
 - 支持浏览器重启后恢复运行状态
 - 支持单实例提醒窗口与前台聚焦唤醒（`focused: true`, `drawAttention: true`），避免重复弹出多个提醒页
 - 支持提醒窗口超时/关闭后自动兜底延后调度，彻底杜绝定时器假死
+- 支持底层 `Promise.race` 并发状态锁熔断保护，防止异常操作造成的系统全局挂起
 - 支持全局启用/停用开关与冷启动重置保护
 
 ## 界面
@@ -45,9 +46,9 @@
 | 模块 | 职责 |
 |------|------|
 | `shared/constants.js` | 模式枚举、消息类型、存储键名、默认设置与默认状态 |
-| `shared/timer_engine.js` | 纯状态机：阶段流转（work → break → work）、时段判定（`isWithinSchedule`）、下次生效时间计算（`getNextScheduleStartTime`） |
+| `shared/timer_engine.js` | 纯状态机：阶段流转（work → break → work）、时段判定（`isWithinSchedule`）、下次生效时间计算（`getNextScheduleStartTime`）、格式解析 |
 | `shared/storage.js` | 存储抽象：读写设置与状态、数据归一化、内存回退 |
-| `shared/validation.js` | 输入校验：数值范围统一钳位、字符串截断、延后选项去重/排序/过滤、时段与星期校验 |
+| `shared/validation.js` | 输入校验：数值范围统一钳位、字符串截断、延后选项去重/排序/过滤、时段与空星期异常阻断 |
 | `background/service-worker.js` | 调度核心：alarm 处理、时段调度、系统通知、提醒窗口管理、Action Badge 更新、消息路由、状态串行锁 |
 | `popup/` | 工具栏弹窗：状态展示、时段休眠展示、情境操作（结束/开始休息）、暂停/恢复/测试操作 |
 | `options/` | 设置页：表单读写、时段与星期配置、保存/重置/测试 |
@@ -93,7 +94,7 @@
 ```text
 work ──(到期)──→ 提醒页 ──startBreak──→ shortBreak/longBreak ──(到期/提前结束)──→ 发出休息结束通知 ──→ work
                        ├─ snooze ──→ (延后到期后再次提醒)
-                       ├─ skip ──→ work（重置工作计时器，开启新的完整工作周期）
+                       ├─ skip ──→ work（重置工作计时器，开启新的完整工作周期，并推进长休息循环进度）
                        └─ 超时/关闭未操作 ──→ 自动安排兜底延后 (默认5分钟) ──→ 再次提醒
 
 任意活动状态 ──pause──→ paused ──resume──→ 恢复之前的模式与剩余时间
@@ -158,7 +159,7 @@ time_reminder/
 
 ## 测试状态
 
-当前自动化测试覆盖（45 项用例，全部通过）：
+当前自动化测试覆盖（98 项用例，全部通过）：
 
 - 配置校验逻辑（默认值回退、统一边界钳位、延后选项多分隔符清洗与去重升序排序、时段与星期格式校验）
 - 工作 / 短休息 / 长休息切换逻辑
@@ -170,8 +171,8 @@ time_reminder/
 - `normalizeState` 缺省与空配置安全回退
 - 延后提醒逻辑与暂停清零
 - `canEndBreak` / `canStartBreak` 条件判定（无需提醒页打开）
-- `withStateLock` 死锁预防（嵌套调用不阻塞）
-- `handleSkip` 调度计算（按完整工作时长重置）
+- `withStateLock` 死锁预防（嵌套调用不阻塞）与 `5000ms` 超时熔断及底层异常恢复机制
+- `handleSkip` 调度计算（按完整工作时长重置，并累加长休息 `cycleCount`）
 - 测试提醒无损关闭（关闭测试提醒不破坏进行中的工作会话进度）
 - 提醒页关闭兜底 Alarm 调度（超时或关闭后自动延后，防止扩展假死）
 - 到期状态下调用 `getStatus` 的 Alarm 自动保留与防假死
@@ -185,3 +186,8 @@ time_reminder/
 - `scheduleMainAlarm` NaN 输入防护
 - `tabs.onRemoved` 事件的状态清理
 - 存储状态归一化与未知属性过滤
+- 空星期选择 (`scheduleDays`) 的严格异常阻断防线
+- `time-reminder-badge-tick` 周期同步刷新机制与休眠释放
+- 延后提醒 `snoozedUntil` 在多场景（测试提醒/保存设置/UI关闭）下的防篡改与正确保持
+- CQS (命令查询分离) 原则检查：`getStatus` 零副作用写入断言
+- `manifest.json` 安全防护：零 `web_accessible_resources` 暴露特征断言
