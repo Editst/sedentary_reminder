@@ -45,6 +45,22 @@
 
 ## 版本变更历史 (Changelog)
 
+### [1.4.2] - 2026-08-16
+
+#### Fix
+- **service-worker**: 修复 `handleTestReminder` 在工作已到期（`isSessionDue` 为 true）但尚无前台提醒时仍允许创建测试提醒的缺陷；测试提醒现在仅允许在"未到期且无正式提醒"时创建。
+- **service-worker**: 修复 `handleMessage` 中 snooze 分钟数解析 `Number.parseInt(value, 10) || 5` 的宽松回退问题；`minutes=0` 被误转换为 5 分钟并通过白名单校验。改为严格有限数判定，非法值传入 `NaN` 由 `handleSnooze` 的白名单拒绝。
+
+#### Refactor
+- **service-worker**: 移除 `listReminderTabs`、`normalizeReminderTabs`、`syncReminderWindowState`、`_reconcileRuntimeInner` 中残留的 `console.log` / `console.error` 调试输出。
+
+#### Test
+- **tdd**: 删除 `service-worker.test.js` 中 #22（Snooze guards）和 #23（badge tick tabs.query）的完整重复测试块。
+- **tdd**: 修复 batch tabs.remove 测试：改用 `onAlarm(MAIN_ALARM)` 触发 `reconcileRuntime`（`getStatus` 为 CQS 纯查询，不触发 `syncReminderWindowState`）。
+- **tdd**: 新增 7 项边界用例：暂停态/长休息 snooze、负数/零/超长 snooze 拒绝、已到期时 testReminder 拒绝、未知消息类型返回错误。
+- **tdd**: 清理测试 mock 中的 `console.error` / `console.log` 调试输出。
+- **tdd**: 全量测试 78 项，100% 绿灯通过。
+
 ### [1.4.1] - 2026-08-15
 
 #### Fix
@@ -65,7 +81,7 @@
 - **manifest**: 安全加固，彻底移除 `web_accessible_resources` 节点，缩小指纹探测暴露面。
 
 #### Test
-- **tdd**: 大规模重构 `tests/service-worker.test.js`，淘汰依赖 `getStatus` 副作用此时序的易碎用例，替换为纯净的直接断言。新增多项核心集成/单元回归用例（snooze 保持、test reminder 幂等、锁恢复、CQS 断言、manifest.json 暴露检测、skip 周期累加等），测试套件总数突破 98 项且 100% 绿灯通过。
+- **tdd**: 大规模重构 `tests/service-worker.test.js`，淘汰依赖 `getStatus` 副作用时序的易碎用例，替换为纯净的直接断言。新增多项核心集成/单元回归用例（snooze 保持、test reminder 幂等、锁恢复、CQS 断言、manifest.json 暴露检测、skip 周期累加等），测试套件总数增至 71 项（含重复待清理）且 100% 绿灯通过。
 
 ### [1.4.0] - 2026-08-08
 

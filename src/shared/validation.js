@@ -28,6 +28,13 @@ function normalizeSnoozeOption(value, min, max) {
   return parsed;
 }
 
+export function normalizeBoolean(value, fallback) {
+  if (typeof value === "boolean") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return fallback;
+}
+
 function normalizeTimeString(value, fallback) {
   if (typeof value === "string" && TIME_REGEX.test(value.trim())) {
     return value.trim();
@@ -36,13 +43,17 @@ function normalizeTimeString(value, fallback) {
 }
 
 function normalizeScheduleDays(days, fallback = [1, 2, 3, 4, 5]) {
-  if (!Array.isArray(days)) {
+  if (!Array.isArray(days) || days.length === 0) {
     return fallback;
   }
 
   const validDays = days
     .map((item) => Number.parseInt(item, 10))
     .filter((item) => Number.isInteger(item) && item >= 0 && item <= 6);
+
+  if (validDays.length === 0) {
+    return fallback;
+  }
 
   const deduplicated = Array.from(new Set(validDays)).sort((a, b) => a - b);
   return deduplicated;
@@ -80,7 +91,7 @@ export function normalizeSettings(input = {}) {
       : DEFAULT_SETTINGS.snoozeMinutesOptions;
 
   return {
-    enabled: Boolean(merged.enabled),
+    enabled: normalizeBoolean(merged.enabled, DEFAULT_SETTINGS.enabled),
     workMinutes: clampInteger(merged.workMinutes, 1, 240, DEFAULT_SETTINGS.workMinutes),
     shortBreakMinutes: clampInteger(
       merged.shortBreakMinutes,
@@ -104,7 +115,7 @@ export function normalizeSettings(input = {}) {
     snoozeMinutesOptions,
     reminderTitle: String(merged.reminderTitle || DEFAULT_SETTINGS.reminderTitle).slice(0, 80),
     reminderBody: String(merged.reminderBody || DEFAULT_SETTINGS.reminderBody).slice(0, 200),
-    scheduleEnabled: Boolean(merged.scheduleEnabled),
+    scheduleEnabled: normalizeBoolean(merged.scheduleEnabled, DEFAULT_SETTINGS.scheduleEnabled),
     scheduleStartTime: normalizeTimeString(
       merged.scheduleStartTime,
       DEFAULT_SETTINGS.scheduleStartTime

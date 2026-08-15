@@ -74,23 +74,26 @@ export function resumeState(state) {
   };
 }
 
-function parseTimeToMinutes(timeStr, fallbackStr) {
-  if (typeof timeStr !== "string") {
-    if (fallbackStr === undefined) return 0;
-    return parseTimeToMinutes(fallbackStr);
+export function parseTimeToMinutes(timeStr, fallbackStr) {
+  const tryParse = (str) => {
+    if (typeof str !== "string") return null;
+    const parts = str.split(":");
+    if (parts.length !== 2) return null;
+    const hours = Number.parseInt(parts[0], 10);
+    const minutes = Number.parseInt(parts[1], 10);
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+    return hours * 60 + minutes;
+  };
+
+  const parsed = tryParse(timeStr);
+  if (parsed !== null) return parsed;
+  
+  if (fallbackStr !== undefined) {
+    const fallbackParsed = tryParse(fallbackStr);
+    if (fallbackParsed !== null) return fallbackParsed;
   }
-  const parts = timeStr.split(":");
-  if (parts.length !== 2) {
-    if (fallbackStr === undefined) return 0;
-    return parseTimeToMinutes(fallbackStr);
-  }
-  const hours = Number.parseInt(parts[0], 10);
-  const minutes = Number.parseInt(parts[1], 10);
-  if (Number.isNaN(hours) || Number.isNaN(minutes)) {
-    if (fallbackStr === undefined) return 0;
-    return parseTimeToMinutes(fallbackStr);
-  }
-  return hours * 60 + minutes;
+  
+  return 0;
 }
 
 export function isWithinSchedule(settings, nowMs = Date.now()) {
@@ -100,7 +103,7 @@ export function isWithinSchedule(settings, nowMs = Date.now()) {
 
   const scheduleDays = Array.isArray(settings.scheduleDays) ? settings.scheduleDays : [];
   if (scheduleDays.length === 0) {
-    return true;
+    return false;
   }
 
   const startMinutes = parseTimeToMinutes(settings.scheduleStartTime, DEFAULT_SETTINGS.scheduleStartTime);
@@ -144,7 +147,7 @@ export function getNextScheduleStartTime(settings, nowMs = Date.now()) {
 
   const scheduleDays = Array.isArray(settings.scheduleDays) ? settings.scheduleDays : [];
   if (scheduleDays.length === 0) {
-    return nowMs;
+    return nowMs + 60 * 1000;
   }
 
   const startMinutes = parseTimeToMinutes(settings.scheduleStartTime, DEFAULT_SETTINGS.scheduleStartTime);

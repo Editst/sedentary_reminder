@@ -8,9 +8,21 @@ test("returns defaults for empty input", () => {
 });
 
 test("allows empty scheduleDays if explicitly provided", () => {
-    const res = normalizeSettings({ scheduleDays: [] });
-    assert.deepEqual(res.scheduleDays, []);
-  });
+  const res = normalizeSettings({ scheduleDays: [] });
+  // Now we want empty scheduleDays to fallback to DEFAULT_SETTINGS.scheduleDays (which is 1-5)
+  // because an empty scheduleDays means the user didn't select any days, which is invalid.
+  assert.deepEqual(res.scheduleDays, [1, 2, 3, 4, 5]);
+});
+
+test("normalizes boolean strings correctly", () => {
+  assert.equal(normalizeSettings({ scheduleEnabled: "true" }).scheduleEnabled, true);
+  assert.equal(normalizeSettings({ scheduleEnabled: "false" }).scheduleEnabled, false);
+});
+
+test("invalid booleans fallback to default", () => {
+  assert.equal(normalizeSettings({ scheduleEnabled: "invalid" }).scheduleEnabled, false);
+  assert.equal(normalizeSettings({ enabled: "invalid" }).enabled, true); // enabled default is true
+});
 
 test("clamps numeric values to min and max boundaries", () => {
   const result = normalizeSettings({

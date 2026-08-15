@@ -25,8 +25,13 @@ const captured = {
   badgeText: "",
   badgeColor: "",
   onAlarm: null,
-  onNotificationClicked: null
+  onNotificationClicked: null,
+  tabsQueried: [],
+  tabsRemoved: [],
+  mockTabsQueryReturn: null
 };
+
+export const waitEvent = () => new Promise(r => setImmediate(r));
 
 function clearObject(obj) {
   for (const key of Object.keys(obj)) {
@@ -67,10 +72,15 @@ before(async () => {
       }
     },
     tabs: {
-      query: async () => [],
+      query: async (opts) => {
+        captured.tabsQueried.push(opts);
+        return captured.mockTabsQueryReturn || [];
+      },
       create: async (opts) => ({ id: Math.floor(Math.random() * 1e5), url: opts.url, windowId: 1 }),
       update: async () => ({}),
-      remove: async () => {},
+      remove: async (ids) => {
+        captured.tabsRemoved.push(ids);
+      },
       onRemoved: { addListener: (fn) => { captured.onTabRemoved = fn; } }
     },
     alarms: {
@@ -109,7 +119,7 @@ before(async () => {
   };
 
   await import("../src/background/service-worker.js");
-  await new Promise((r) => setTimeout(r, 200));
+  await waitEvent();
 });
 
 beforeEach(() => {
@@ -120,6 +130,9 @@ beforeEach(() => {
   captured.windowsUpdated = [];
   captured.badgeText = "";
   captured.badgeColor = "";
+  captured.tabsQueried = [];
+  captured.tabsRemoved = [];
+  captured.mockTabsQueryReturn = null;
 });
 
 // ------------------------------------------------------------------
@@ -368,7 +381,7 @@ describe("tabs.onRemoved fallback alarm", () => {
     captured.alarmsCreated = [];
 
     captured.onTabRemoved(tabId);
-    await new Promise((r) => setTimeout(r, 300));
+    await waitEvent();
 
     const state = localStore[STORAGE_KEYS.state];
     assert.equal(state.notificationOpen, false, "notificationOpen should be false");
@@ -398,7 +411,7 @@ describe("break session completion", () => {
     captured.notificationsCreated = [];
 
     await captured.onAlarm({ name: MAIN_ALARM });
-    await new Promise((r) => setTimeout(r, 50));
+    await waitEvent();
 
     const state = localStore[STORAGE_KEYS.state];
     assert.equal(state.mode, MODES.work, "mode should transition to work after break expires");
@@ -564,7 +577,7 @@ describe("tabs.onRemoved out-of-schedule behavior", () => {
     };
 
     await captured.onTabRemoved(9999);
-    await new Promise((r) => setTimeout(r, 50));
+    await waitEvent();
 
     const state = localStore[STORAGE_KEYS.state];
     assert.equal(state.notificationOpen, false);
@@ -734,7 +747,7 @@ describe("badge tick alarm triggers update", () => {
     captured.badgeText = "";
 
     await captured.onAlarm({ name: "time-reminder-badge-tick" });
-    await new Promise((r) => setTimeout(r, 50));
+    await waitEvent();
 
     assert.ok(captured.badgeText.length > 0, "badgeText should be updated after badge-tick alarm");
   });
@@ -761,7 +774,7 @@ describe("syncReminderWindowState preserves snoozedUntil", () => {
 
     // Simulate the notification tab being closed
     captured.onTabRemoved(99);
-    await new Promise((r) => setTimeout(r, 300));
+    await waitEvent();
 
     const state = localStore[STORAGE_KEYS.state];
     // snoozedUntil should be preserved (not reset to 0) since snooze is still active
@@ -797,7 +810,7 @@ describe("openReminderTab failures fallback alarm", () => {
 
       // Trigger main alarm which should normally open reminder
       await captured.onAlarm({ name: MAIN_ALARM });
-      await new Promise((r) => setTimeout(r, 50));
+      await waitEvent();
 
       const state = localStore[STORAGE_KEYS.state];
       assert.equal(state.notificationOpen, false, "failed open must not mark notification as open");
@@ -812,6 +825,191 @@ describe("openReminderTab failures fallback alarm", () => {
     }
   });
 });
+
+// ------------------------------------------------------------------
+// #22 Snooze guards and whitelist validation
+// ------------------------------------------------------------------
+
+describe("Snooze guards and whitelist validation", () => {
+  it("should ignore snooze if mode is not work", async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.shortBreak,
+      currentSessionStart: now - 1000,
+      currentSessionEnd: now + 5 * 60 * 1000
+    };
+    
+    const res = await sendMessage({ type: MESSAGE_TYPES.snooze, minutes: "5" });
+    assert.equal(res.ok, true);
+    assert.equal(localStore[STORAGE_KEYS.state].mode, MODES.shortBreak);
+    assert.equal(localStore[STORAGE_KEYS.state].snoozedUntil, 0);
+  });
+
+  it("should ignore snooze if session is not due", async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now,
+      currentSessionEnd: now + 45 * 60 * 1000
+    };
+    
+    const res = await sendMessage({ type: MESSAGE_TYPES.snooze, minutes: "5" });
+    assert.equal(res.ok, true);
+    assert.equal(localStore[STORAGE_KEYS.state].snoozedUntil, 0);
+  });
+
+  it("should ignore snooze if minutes not in whitelist", async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now - 50 * 60 * 1000,
+      currentSessionEnd: now - 5 * 60 * 1000
+    };
+    
+    // Default whitelist is [5, 10]. Using 20 should be ignored.
+    const res = await sendMessage({ type: MESSAGE_TYPES.snooze, minutes: "20" });
+    assert.equal(res.ok, true);
+    assert.equal(localStore[STORAGE_KEYS.state].snoozedUntil, 0);
+  });
+
+  it("should allow snooze if valid", async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now - 50 * 60 * 1000,
+      currentSessionEnd: now - 5 * 60 * 1000
+    };
+    
+    const res = await sendMessage({ type: MESSAGE_TYPES.snooze, minutes: "10" });
+    assert.equal(res.ok, true);
+    assert.ok(localStore[STORAGE_KEYS.state].snoozedUntil > now);
+  });
+});
+
+// ------------------------------------------------------------------
+// #23 badge tick tabs.query optimization
+// ------------------------------------------------------------------
+
+describe("Badge tick skips tabs.query when no reminder is open", () => {
+  it("badge tick should not query tabs if notificationOpen is false", async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now,
+      currentSessionEnd: now + 45 * 60 * 1000,
+      notificationOpen: false,
+      notificationTabId: null
+    };
+    captured.tabsQueried = [];
+    
+    await captured.onAlarm({ name: "time-reminder-badge-tick" });
+    await waitEvent();
+    
+    assert.equal(captured.tabsQueried.length, 0, "should short-circuit tabs.query on badge tick");
+  });
+
+  it("badge tick should query tabs if reminder is recorded open to allow self-healing", async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now - 50 * 60 * 1000,
+      currentSessionEnd: now - 5 * 60 * 1000,
+      notificationOpen: true,
+      notificationTabId: 42
+    };
+    captured.tabsQueried = [];
+    
+    await captured.onAlarm({ name: "time-reminder-badge-tick" });
+    await waitEvent();
+    
+    assert.ok(captured.tabsQueried.length > 0, "should query tabs to reconcile orphaned notificationOpen");
+  });
+});
+
+// ------------------------------------------------------------------
+// #24 batch tabs.remove
+// ------------------------------------------------------------------
+
+describe("Batch tabs.remove", () => {
+  it("should close duplicate tabs with a single batch array call", async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now - 50 * 60 * 1000,
+      currentSessionEnd: now - 5 * 60 * 1000,
+      notificationOpen: true,
+      notificationTabId: 1,
+      reminderKind: "due"
+    };
+    captured.tabsRemoved = [];
+    captured.mockTabsQueryReturn = [
+      { id: 1, url: "chrome-extension://fake/notification/notification.html" },
+      { id: 2, url: "chrome-extension://fake/notification/notification.html" },
+      { id: 3, url: "chrome-extension://fake/notification/notification.html" }
+    ];
+    // Use onAlarm(MAIN_ALARM) to trigger reconcileRuntime which calls syncReminderWindowState(state, true)
+    await captured.onAlarm({ name: MAIN_ALARM });
+    await waitEvent();
+
+    // normalizeReminderTabs should batch-remove duplicates [2, 3] in a single call
+    const batchCall = captured.tabsRemoved.find((ids) => Array.isArray(ids) && ids.length > 1);
+    assert.ok(batchCall, "should call tabs.remove with an array of duplicate ids");
+    assert.deepEqual(batchCall.sort(), [2, 3], "should pass duplicate tab ids");
+  });
+});
+
+// ------------------------------------------------------------------
+// #25 testReminder should not overwrite due reminder
+// ------------------------------------------------------------------
+
+describe("testReminder guard", () => {
+  it("should reject test reminder if a genuine due reminder is open", async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now - 50 * 60 * 1000,
+      currentSessionEnd: now - 5 * 60 * 1000,
+      notificationOpen: true,
+      reminderKind: "due",
+      notificationTabId: 99
+    };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.testReminder });
+    assert.equal(res.ok, true);
+
+    const state = localStore[STORAGE_KEYS.state];
+    assert.equal(state.reminderKind, "due", "should not overwrite due with test");
+    assert.equal(state.notificationTabId, 99, "should not close original notification");
+  });
+
+  it("should reject test reminder if work session is due (no open reminder)", async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now - 50 * 60 * 1000,
+      currentSessionEnd: now - 5 * 60 * 1000,
+      notificationOpen: false,
+      reminderKind: null,
+      notificationTabId: null
+    };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.testReminder });
+    assert.equal(res.ok, true);
+
+    const state = localStore[STORAGE_KEYS.state];
+    assert.notEqual(state.reminderKind, "test", "should not create test reminder when session is due");
+  });
+});
+
 
 // ------------------------------------------------------------------
 // Issue 2: saveSettings should preserve paused state
@@ -866,19 +1064,19 @@ describe("getStatus CQS compliance", () => {
 });
 
 // ------------------------------------------------------------------
+// ------------------------------------------------------------------
 // Issue 5: withStateLock timeout recovery
 // ------------------------------------------------------------------
 
 describe("withStateLock timeout recovery", () => {
   it("state lock recovers when an operation hangs", { timeout: 6000 }, async () => {
     const origGet = globalThis.chrome.storage.local.get;
-    
+
     // Mock get to hang indefinitely
-    globalThis.chrome.storage.local.get = async () => new Promise(() => {}); 
-    
+    globalThis.chrome.storage.local.get = async () => new Promise(() => {});
+
     try {
       const res = await sendMessage({ type: MESSAGE_TYPES.pause });
-      console.log("timeout test res:", res);
       assert.equal(res.ok, false);
       assert.ok((res.error || "").toLowerCase().includes("time"), "must reject with timeout error");
 
@@ -889,5 +1087,96 @@ describe("withStateLock timeout recovery", () => {
     } finally {
       globalThis.chrome.storage.local.get = origGet;
     }
+  });
+});
+
+// ------------------------------------------------------------------
+// #26 Snooze edge cases: paused, longBreak, negative, zero, oversized
+// ------------------------------------------------------------------
+
+describe("Snooze edge-case guards", () => {
+  it("should ignore snooze when paused", async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.paused,
+      previousMode: MODES.work,
+      currentSessionStart: now - 50 * 60 * 1000,
+      currentSessionEnd: now - 5 * 60 * 1000
+    };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.snooze, minutes: "5" });
+    assert.equal(res.ok, true);
+    assert.equal(localStore[STORAGE_KEYS.state].mode, MODES.paused, "mode unchanged");
+    assert.equal(localStore[STORAGE_KEYS.state].snoozedUntil, 0, "snoozedUntil unchanged");
+  });
+
+  it("should ignore snooze during long break", async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.longBreak,
+      currentSessionStart: now,
+      currentSessionEnd: now + 15 * 60 * 1000
+    };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.snooze, minutes: "5" });
+    assert.equal(res.ok, true);
+    assert.equal(localStore[STORAGE_KEYS.state].mode, MODES.longBreak, "mode unchanged");
+    assert.equal(localStore[STORAGE_KEYS.state].snoozedUntil, 0, "snoozedUntil unchanged");
+  });
+
+  it("should ignore snooze with negative minutes", async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now - 50 * 60 * 1000,
+      currentSessionEnd: now - 5 * 60 * 1000
+    };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.snooze, minutes: "-5" });
+    assert.equal(res.ok, true);
+    assert.equal(localStore[STORAGE_KEYS.state].snoozedUntil, 0, "negative snooze rejected");
+  });
+
+  it("should ignore snooze with zero minutes", async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now - 50 * 60 * 1000,
+      currentSessionEnd: now - 5 * 60 * 1000
+    };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.snooze, minutes: "0" });
+    assert.equal(res.ok, true);
+    assert.equal(localStore[STORAGE_KEYS.state].snoozedUntil, 0, "zero snooze rejected");
+  });
+
+  it("should ignore snooze with oversized minutes (999)", async () => {
+    const now = Date.now();
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      currentSessionStart: now - 50 * 60 * 1000,
+      currentSessionEnd: now - 5 * 60 * 1000
+    };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.snooze, minutes: "999" });
+    assert.equal(res.ok, true);
+    assert.equal(localStore[STORAGE_KEYS.state].snoozedUntil, 0, "oversized snooze rejected");
+  });
+});
+
+// ------------------------------------------------------------------
+// #27 Unknown message type returns error
+// ------------------------------------------------------------------
+
+describe("Unknown message type handling", () => {
+  it("should return error for unknown message type without crashing", async () => {
+    const res = await sendMessage({ type: "TOTALLY_UNKNOWN" });
+    assert.equal(res.ok, false, "should report failure");
+    assert.ok(res.error, "should include error message");
   });
 });

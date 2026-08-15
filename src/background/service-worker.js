@@ -240,25 +240,24 @@ async function normalizeReminderTabs(preferredTabId = null) {
   const duplicates = tabs.filter((tab) => tab.id !== canonical.id);
 
   if (duplicates.length > 0) {
-    await Promise.all(
-      duplicates.map(async (tab) => {
-        if (tab.id == null) {
-          return;
-        }
-
-        try {
-          await globalThis.chrome.tabs.remove(tab.id);
-        } catch (error) {
-          console.warn(`[normalizeReminderTabs] chrome.tabs.remove failed for tab ${tab.id}:`, error);
-        }
-      })
-    );
+    const idsToRemove = duplicates.map((tab) => tab.id).filter((id) => id != null);
+    if (idsToRemove.length > 0) {
+      try {
+        await globalThis.chrome.tabs.remove(idsToRemove);
+      } catch (error) {
+        console.warn(`[normalizeReminderTabs] batch chrome.tabs.remove failed:`, error);
+      }
+    }
   }
 
   return canonical;
 }
 
-async function syncReminderWindowState(state) {
+async function syncReminderWindowState(state, force = false) {
+  if (!force && !state.notificationOpen && state.notificationTabId == null) {
+    return state;
+  }
+
   const canonical = await normalizeReminderTabs(state.notificationTabId);
   if (canonical?.id != null) {
     if (!state.notificationOpen || state.notificationTabId !== canonical.id) {
@@ -408,7 +407,7 @@ async function disableRuntime(state, settings) {
   return buildStatus(nextState, settings);
 }
 
-async function _reconcileRuntimeInner(now, { openDueReminder = false } = {}) {
+async function _reconcileRuntimeInner(now, { openDueReminder = false, isBadgeTick = false } = {}) {
   const snapshot = await loadSnapshot(now);
   let { state, settings } = snapshot;
 
@@ -416,7 +415,10 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false } = {}) {
     return disableRuntime(state, settings);
   }
 
-  state = await syncReminderWindowState(state);
+  // Only bypass query if we are just a badge tick AND we don't think there's a notification open.
+  // If we think there's one open, we should sync to allow self-healing in case the user closed it.
+  const bypassQuery = isBadgeTick && !state.notificationOpen;
+  state = await syncReminderWindowState(state, !bypassQuery);
 
   const inSchedule = isWithinSchedule(settings, now);
   if (!inSchedule) {
@@ -497,8 +499,8 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false } = {}) {
   return buildStatus(state, settings, now);
 }
 
-function reconcileRuntime({ openDueReminder = false } = {}) {
-  return withStateLock(() => _reconcileRuntimeInner(Date.now(), { openDueReminder }));
+function reconcileRuntime({ openDueReminder = false, isBadgeTick = false } = {}) {
+  return withStateLock(() => _reconcileRuntimeInner(Date.now(), { openDueReminder, isBadgeTick }));
 }
 
 function handleSaveSettings(payload) {
@@ -587,6 +589,15 @@ function handleSnooze(minutes) {
     const snapshot = await loadSnapshot(now);
     if (!snapshot.settings.enabled) {
       return disableRuntime(snapshot.state, snapshot.settings);
+    }
+
+    const status = buildStatus(snapshot.state, snapshot.settings, now);
+    if (!status.canSnooze) {
+      return status;
+    }
+
+    if (!snapshot.settings.snoozeMinutesOptions.includes(minutes)) {
+      return status;
     }
 
     const nextState = resetRuntimeState(applySnooze(clearResumeLock(snapshot.state), minutes, now));
@@ -679,6 +690,14 @@ function handleTestReminder() {
     if (!snapshot.settings.enabled) {
       return disableRuntime(snapshot.state, snapshot.settings);
     }
+    
+    if (snapshot.state.notificationOpen && snapshot.state.reminderKind === REMINDER_KINDS.due) {
+      return buildStatus(snapshot.state, snapshot.settings, now);
+    }
+
+    if (isSessionDue(snapshot.state, now)) {
+      return buildStatus(snapshot.state, snapshot.settings, now);
+    }
 
     const nextState = await showReminder(snapshot.state, snapshot.settings, now, REMINDER_KINDS.test);
     await updateActionBadge(nextState, snapshot.settings, now);
@@ -700,8 +719,10 @@ async function handleMessage(message) {
       return handlePause();
     case MESSAGE_TYPES.resume:
       return handleResume();
-    case MESSAGE_TYPES.snooze:
-      return handleSnooze(Number.parseInt(message.minutes, 10) || 5);
+    case MESSAGE_TYPES.snooze: {
+      const parsed = Number.parseInt(message.minutes, 10);
+      return handleSnooze(Number.isFinite(parsed) ? parsed : NaN);
+    }
     case MESSAGE_TYPES.startBreak:
       return handleStartBreak();
     case MESSAGE_TYPES.endBreak:
@@ -711,7 +732,7 @@ async function handleMessage(message) {
     case MESSAGE_TYPES.testReminder:
       return handleTestReminder();
     default:
-      return reconcileRuntime({ openDueReminder: false });
+      throw new Error(`Unknown message type: ${message?.type}`);
   }
 }
 
@@ -735,7 +756,7 @@ globalThis.chrome.alarms.onAlarm.addListener((alarm) => {
   }
 
   if (alarm.name === BADGE_TICK_ALARM) {
-    return reconcileRuntime({ openDueReminder: false }).catch((error) => {
+    return reconcileRuntime({ openDueReminder: false, isBadgeTick: true }).catch((error) => {
       console.error("[onAlarm:badgeTick] reconcileRuntime failed:", error);
     });
   }

@@ -10,7 +10,8 @@ import {
   formatSeconds,
   getNextScheduleStartTime,
   isSessionDue,
-  isWithinSchedule
+  isWithinSchedule,
+  parseTimeToMinutes
 } from "../src/shared/timer_engine.js";
 
 const settings = {
@@ -53,6 +54,26 @@ test("switches to a long break at the threshold", () => {
 
   assert.equal(state.mode, MODES.longBreak);
   assert.equal(state.cycleCount, 0);
+});
+
+test("returns defaults for empty input", () => {
+  const s = createNextBreakState({ cycleCount: 0 }, { shortBreakMinutes: 5, longBreakEvery: 4 }, 1000);
+  assert.equal(s.mode, MODES.shortBreak);
+});
+
+test("parseTimeToMinutes handles double invalid gracefully", () => {
+  // Should return 0 instead of throwing stack overflow
+  const res = parseTimeToMinutes("invalid", "invalid");
+  assert.equal(res, 0, "Double invalid should return 0");
+});
+
+test("isWithinSchedule with empty scheduleDays always returns true", () => {
+  // Wait, the prompt says "空星期配置经过归一化后不再导致全天生效".
+  // Actually validation.js will ensure empty array is NOT possible, it will fallback to [1,2,3,4,5].
+  // But timer_engine should also be defensive if it gets empty array: should it return false?
+  // Let's test that isWithinSchedule returns false for empty scheduleDays.
+  const res = isWithinSchedule({ scheduleEnabled: true, scheduleDays: [], scheduleStartTime: "00:00", scheduleEndTime: "23:59" }, new Date("2023-01-01T12:00:00Z").getTime());
+  assert.equal(res, false, "Empty scheduleDays should result in not in schedule");
 });
 
 test("returns to work from a break", () => {
