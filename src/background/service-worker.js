@@ -263,7 +263,7 @@ async function normalizeReminderTabs(preferredTabId = null) {
   return canonical;
 }
 
-async function syncReminderWindowState(state, force = false) {
+async function syncReminderWindowState(state, settings, force = false) {
   if (!force && !state.notificationOpen && state.notificationTabId == null) {
     return state;
   }
@@ -276,7 +276,7 @@ async function syncReminderWindowState(state, force = false) {
         notificationOpen: true,
         notificationTabId: canonical.id
       };
-      await writeState(nextState);
+      await writeState(nextState, settings);
       return nextState;
     }
 
@@ -285,14 +285,14 @@ async function syncReminderWindowState(state, force = false) {
 
   if (state.notificationOpen || state.notificationTabId != null) {
     const nextState = resetRuntimeState(state);
-    await writeState(nextState);
+    await writeState(nextState, settings);
     return nextState;
   }
 
   return state;
 }
 
-async function openReminderTab(state) {
+async function openReminderTab(state, settings) {
   const canonical = await normalizeReminderTabs(state.notificationTabId);
   if (canonical) {
     await focusTab(canonical);
@@ -301,7 +301,7 @@ async function openReminderTab(state) {
       notificationOpen: true,
       notificationTabId: canonical.id ?? null
     };
-    await writeState(nextState);
+    await writeState(nextState, settings);
     return nextState;
   }
 
@@ -320,7 +320,7 @@ async function openReminderTab(state) {
 
   if (!tab) {
     const nextState = resetRuntimeState(state);
-    await writeState(nextState);
+    await writeState(nextState, settings);
     return nextState;
   }
 
@@ -331,7 +331,7 @@ async function openReminderTab(state) {
     notificationOpen: true,
     notificationTabId: tab.id ?? null
   };
-  await writeState(nextState);
+  await writeState(nextState, settings);
   return nextState;
 }
 
@@ -397,7 +397,7 @@ async function showReminder(state, settings, now, kind) {
     getReminderTitle(nextState, settings),
     getReminderMessage(nextState, settings)
   );
-  return openReminderTab(nextState);
+  return openReminderTab(nextState, settings);
 }
 
 async function disableRuntime(state, settings) {
@@ -422,7 +422,7 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false, isBadgeTic
   }
 
   const shouldSync = !isBadgeTick || state.notificationOpen;
-  state = await syncReminderWindowState(state, shouldSync);
+  state = await syncReminderWindowState(state, settings, shouldSync);
 
   const inSchedule = isWithinSchedule(settings, now);
   if (!inSchedule) {
@@ -437,7 +437,7 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false, isBadgeTic
     if (nextState.mode !== MODES.paused) {
       nextState = createInitialState(nextScheduleStart, settings);
     }
-    await writeState(nextState);
+    await writeState(nextState, settings);
     await updateActionBadge(nextState, settings, now);
     return buildStatus(nextState, settings, now);
   }
@@ -455,7 +455,7 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false, isBadgeTic
       state.notificationOpen = false;
       state.notificationTabId = null;
       state.reminderKind = null;
-      await writeState(state);
+      await writeState(state, settings);
       await closeReminderTab(snapshot.state.notificationTabId);
       await createSystemNotification(
         settings,
@@ -493,7 +493,7 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false, isBadgeTic
       ...state,
       reminderKind: null
     };
-    await writeState(cleanedState);
+    await writeState(cleanedState, settings);
     state = cleanedState;
   }
 
@@ -534,7 +534,7 @@ function handleSaveSettings(payload) {
       state = applySettingsToState(baseState, settings);
     }
 
-    await writeState(state);
+    await writeState(state, settings);
     return _reconcileRuntimeInner(now, { openDueReminder: true });
   });
 }
@@ -614,7 +614,7 @@ function isAllowedSnooze(status, minutes, settings) {
 }
 
 async function commitTransition(snapshot, nextState, alarmTarget, now) {
-  await writeState(nextState);
+  await writeState(nextState, snapshot.settings);
   await closeReminderTab(snapshot.state.notificationTabId);
   if (alarmTarget != null) {
     await scheduleMainAlarm(alarmTarget);
@@ -835,7 +835,7 @@ globalThis.chrome.tabs.onRemoved.addListener((tabId) => {
       await scheduleMainAlarm(nextState.snoozedUntil);
     }
 
-    await writeState(nextState);
+    await writeState(nextState, snapshot.settings);
     await globalThis.chrome.notifications.clear(NOTIFICATION_ID).catch(() => {});
     await updateActionBadge(nextState, snapshot.settings, now);
   }).catch((error) => {

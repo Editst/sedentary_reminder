@@ -5,7 +5,8 @@ import {
   readSettings,
   readState,
   writeSettings,
-  writeState
+  writeState,
+  clearState
 } from "../src/shared/storage.js";
 import { DEFAULT_SETTINGS, DEFAULT_STATE, MODES } from "../src/shared/constants.js";
 
@@ -75,4 +76,45 @@ it("preserves settings and state in the memory fallback", async () => {
   } finally {
     globalThis.chrome = originalChrome;
   }
+});
+
+describe("writeState uses provided settings for normalizeState (BUG-01)", () => {
+  it("should compute fallback sessionEnd based on provided settings, not DEFAULT_SETTINGS", () => {
+    const customSettings = { ...DEFAULT_SETTINGS, workMinutes: 120 };
+    const now = 1000000;
+    // Provide a state with currentSessionEnd = 0 (invalid), forcing normalizeState to fallback.
+    const state = normalizeState(
+      { ...DEFAULT_STATE, currentSessionStart: now, currentSessionEnd: 0 },
+      now,
+      customSettings
+    );
+    // fallback should use customSettings.workMinutes (120 min), not DEFAULT_SETTINGS (45 min)
+    assert.equal(
+      state.currentSessionEnd,
+      now + 120 * 60 * 1000,
+      `sessionEnd should use custom workMinutes=120, got ${(state.currentSessionEnd - now) / 60000}min`
+    );
+  });
+});
+
+describe("clearState passes settings to writeState (BUG-02)", () => {
+  it("should produce initial state with correct workMinutes duration", async () => {
+    const originalChrome = globalThis.chrome;
+    globalThis.chrome = undefined;
+
+    try {
+      const customSettings = { ...DEFAULT_SETTINGS, workMinutes: 30 };
+      await writeSettings(customSettings);
+      const now = 5000000;
+      const state = await clearState(now, customSettings);
+      // Initial state's sessionEnd should be based on 30 min, not 45 min
+      assert.equal(
+        state.currentSessionEnd,
+        now + 30 * 60 * 1000,
+        `clearState should use workMinutes=30, got ${(state.currentSessionEnd - now) / 60000}min`
+      );
+    } finally {
+      globalThis.chrome = originalChrome;
+    }
+  });
 });

@@ -1267,3 +1267,86 @@ describe("command admission guards", () => {
     assert.deepEqual(localStore[STORAGE_KEYS.state], before);
   });
 });
+
+// ------------------------------------------------------------------
+// BUG-01: writeState must use actual settings, not DEFAULT_SETTINGS
+// ------------------------------------------------------------------
+
+describe("writeState settings pass-through (BUG-01)", () => {
+  it("resume with custom workMinutes should produce correct session span", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    const customWorkMinutes = 120;
+    syncStore[STORAGE_KEYS.settings] = { ...DEFAULT_SETTINGS, workMinutes: customWorkMinutes };
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.paused,
+      previousMode: MODES.work,
+      pausedRemainingMs: 60 * 60 * 1000 // 60 mins remaining
+    };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.resume });
+    assert.equal(res.ok, true);
+
+    const state = localStore[STORAGE_KEYS.state];
+    const span = state.currentSessionEnd - state.currentSessionStart;
+    assert.equal(
+      span,
+      customWorkMinutes * 60 * 1000,
+      `session span should be ${customWorkMinutes}min, got ${span / 60000}min`
+    );
+  });
+
+  it("break end with custom workMinutes should start correct work session", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    const customWorkMinutes = 90;
+    syncStore[STORAGE_KEYS.settings] = { ...DEFAULT_SETTINGS, workMinutes: customWorkMinutes };
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.shortBreak,
+      currentSessionStart: now,
+      currentSessionEnd: now + 5 * 60 * 1000
+    };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.endBreak });
+    assert.equal(res.ok, true);
+
+    const state = localStore[STORAGE_KEYS.state];
+    assert.equal(state.mode, MODES.work);
+    const span = state.currentSessionEnd - state.currentSessionStart;
+    assert.equal(
+      span,
+      customWorkMinutes * 60 * 1000,
+      `work session span should be ${customWorkMinutes}min, got ${span / 60000}min`
+    );
+  });
+
+  it("out-of-schedule transition preserves custom workMinutes in initial state", { timeout: 3000 }, async () => {
+    const customWorkMinutes = 60;
+    syncStore[STORAGE_KEYS.settings] = {
+      ...DEFAULT_SETTINGS,
+      workMinutes: customWorkMinutes,
+      scheduleEnabled: true,
+      scheduleStartTime: "00:00",
+      scheduleEndTime: "00:01",
+      scheduleDays: [0, 1, 2, 3, 4, 5, 6]
+    };
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.work,
+      notificationOpen: true,
+      notificationTabId: 8888,
+      reminderKind: REMINDER_KINDS.due
+    };
+
+    captured.onTabRemoved(8888);
+    await waitEvent();
+
+    const state = localStore[STORAGE_KEYS.state];
+    const span = state.currentSessionEnd - state.currentSessionStart;
+    assert.equal(
+      span,
+      customWorkMinutes * 60 * 1000,
+      `initial state span should be ${customWorkMinutes}min, got ${span / 60000}min`
+    );
+  });
+});

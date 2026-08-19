@@ -180,6 +180,6 @@ export async function loadSnapshot(now = Date.now(), { persistIfMissing = true }
 export async function clearState(now = Date.now(), settings = null) {
   const effectiveSettings = settings ?? (await readSettings());
   const initialState = createInitialState(now, effectiveSettings);
-  await writeState(initialState);
+  await writeState(initialState, effectiveSettings);
   return initialState;
 }
