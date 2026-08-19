@@ -99,13 +99,23 @@ function formatStatus(snapshot) {
   return `当前状态：${snapshot.modeLabel}，剩余约 ${Math.ceil(snapshot.remainingMs / 1000)} 秒。`;
 }
 
+let isDirty = false;
+
 async function init() {
   populateForm(DEFAULT_SETTINGS);
   elements.scheduleEnabled.addEventListener("change", updateScheduleVisibility);
 
+  form.addEventListener("input", () => {
+    isDirty = true;
+  });
+  form.addEventListener("change", () => {
+    isDirty = true;
+  });
+
   try {
     const snapshot = await sendExtensionMessage({ type: MESSAGE_TYPES.getStatus });
     populateForm(snapshot.settings);
+    isDirty = false;
     setStatus(formatStatus(snapshot));
   } catch (error) {
     setStatus(`读取当前状态失败：${error.message}`);
@@ -114,7 +124,11 @@ async function init() {
   if (globalThis.chrome?.storage?.onChanged) {
     globalThis.chrome.storage.onChanged.addListener((changes) => {
       if (changes[STORAGE_KEYS.settings]?.newValue) {
-        populateForm(changes[STORAGE_KEYS.settings].newValue);
+        if (isDirty) {
+          setStatus("设置已在其他位置更新（当前有未保存的修改，未自动覆盖）。");
+        } else {
+          populateForm(changes[STORAGE_KEYS.settings].newValue);
+        }
       }
     });
   }
@@ -126,6 +140,7 @@ form.addEventListener("submit", async (event) => {
   try {
     const snapshot = await sendExtensionMessage({ type: MESSAGE_TYPES.saveSettings, settings: serializeForm() });
     populateForm(snapshot.settings);
+    isDirty = false;
     setStatus(snapshot.enabled ? "设置已保存，并已立即应用。" : "设置已保存，提醒已关闭。");
   } catch (error) {
     setStatus(`保存失败：${error.message}`);
@@ -138,6 +153,7 @@ document.querySelector("#reset").addEventListener("click", async () => {
   try {
     const snapshot = await sendExtensionMessage({ type: MESSAGE_TYPES.saveSettings, settings: DEFAULT_SETTINGS });
     populateForm(snapshot.settings);
+    isDirty = false;
     setStatus(`已恢复默认设置。${formatStatus(snapshot)}`);
   } catch (error) {
     setStatus(`恢复默认设置失败：${error.message}`);
