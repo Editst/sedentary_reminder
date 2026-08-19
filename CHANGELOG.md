@@ -45,6 +45,18 @@
 
 ## 版本变更历史 (Changelog)
 
+### [1.4.5] - 2026-08-19
+
+#### Fix
+- **storage/service-worker**: 修复 `writeState` 和 `clearState` 在各调用点未传入实际 `settings` 参数导致 `normalizeState` 回退时错误使用默认配置（45分钟）的缺陷（BUG-01, BUG-02）。
+- **notification**: 修复 `window.close()` 被浏览器安全策略阻止时的降级逻辑，检测页面存活状态并显示手动关闭引导（BUG-03, BUG-05）。
+- **popup/notification**: 为 `storage.onChanged` 监听器增加 300ms 防抖，防止多处并发写入时触发高频刷新风暴（BUG-04）。
+- **options**: 增加表单脏状态（`isDirty`）保护，防止其他标签页存储更新盲目覆盖用户正在编辑的未保存表单（BUG-06）。
+- **validation/timer-engine**: 生效时间范围禁止设置相同起止时间（UI 阻止提交 + 引擎零宽度判定返回 false）（BUG-07）。
+
+#### Test
+- **tdd**: 新增自定义设置回退传递、clearState 参数透传、跨会话流转保持、生效时段零宽度判定、单天跨周调度边界等回归测试用例；全量测试增至 92 项且 100% 绿灯通过（BUG-08）。
+
 ### [1.4.4] - 2026-08-16
 
 #### Feat
