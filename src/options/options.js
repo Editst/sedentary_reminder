@@ -154,7 +154,6 @@ form.addEventListener("submit", async (event) => {
 });
 
 document.querySelector("#reset").addEventListener("click", async () => {
-  populateForm(DEFAULT_SETTINGS);
   setStatus("正在恢复默认设置...");
   try {
     const snapshot = await sendExtensionMessage({ type: MESSAGE_TYPES.saveSettings, settings: DEFAULT_SETTINGS });
