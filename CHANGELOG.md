@@ -49,13 +49,18 @@
 
 #### Fix
 - **storage/service-worker**: 修复 `writeState` 和 `clearState` 在各调用点未传入实际 `settings` 参数导致 `normalizeState` 回退时错误使用默认配置（45分钟）的缺陷（BUG-01, BUG-02）。
+- **service-worker**: 修复暂停期间若修改缩短专注时长，恢复时 `pausedRemainingMs` 未做上限钳位导致 `currentSessionStart` 逆流出现在未来时间点的缺陷（ISSUE-01）。
 - **notification**: 修复 `window.close()` 被浏览器安全策略阻止时的降级逻辑，检测页面存活状态并显示手动关闭引导（BUG-03, BUG-05）。
 - **popup/notification**: 为 `storage.onChanged` 监听器增加 300ms 防抖，防止多处并发写入时触发高频刷新风暴（BUG-04）。
 - **options**: 增加表单脏状态（`isDirty`）保护，防止其他标签页存储更新盲目覆盖用户正在编辑的未保存表单（BUG-06）。
+- **options**: 修复恢复默认设置时提前回填表单导致请求失败时前端脱节的问题，统一在请求成功后渲染（ISSUE-02）；为延后选项输入框增加 `autocomplete="off"`（ISSUE-03）。
 - **validation/timer-engine**: 生效时间范围禁止设置相同起止时间（UI 阻止提交 + 引擎零宽度判定返回 false）（BUG-07）。
 
+#### Refactor
+- **shared**: 统一由 `validation.js` 导出通用校验函数（`toFiniteNumber`, `toInteger`, `clampInteger`），消除多模块重复定义（DEBT-01, DEBT-02）；提取 `RESUMABLE_MODES` 常量对齐模式校验（DEBT-04）；Popup 页面增加定时器卸载清理（BUG-09）。
+
 #### Test
-- **tdd**: 新增自定义设置回退传递、clearState 参数透传、跨会话流转保持、生效时段零宽度判定、单天跨周调度边界等回归测试用例；全量测试增至 92 项且 100% 绿灯通过（BUG-08）。
+- **tdd**: 新增自定义设置回退传递、clearState 参数透传、暂停缩短时长恢复钳位、跨会话流转保持、生效时段零宽度判定、单天跨周调度边界等回归测试用例；全量测试增至 94 项且 100% 绿灯通过。
 
 ### [1.4.4] - 2026-08-16
 
