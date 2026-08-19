@@ -597,7 +597,8 @@ function handleResume() {
           : snapshot.settings.workMinutes * 60 * 1000;
 
     if (typeof snapshot.state.pausedRemainingMs === "number" && snapshot.state.pausedRemainingMs > 0) {
-      nextState.currentSessionEnd = now + snapshot.state.pausedRemainingMs;
+      const effectiveRemainingMs = Math.min(snapshot.state.pausedRemainingMs, modeDuration);
+      nextState.currentSessionEnd = now + effectiveRemainingMs;
       nextState.currentSessionStart = nextState.currentSessionEnd - modeDuration;
     } else {
       nextState.currentSessionStart = now;

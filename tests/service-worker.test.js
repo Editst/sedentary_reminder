@@ -1349,4 +1349,32 @@ describe("writeState settings pass-through (BUG-01)", () => {
       `initial state span should be ${customWorkMinutes}min, got ${span / 60000}min`
     );
   });
+
+  it("resume caps pausedRemainingMs to modeDuration when duration is shortened while paused (ISSUE-01)", { timeout: 3000 }, async () => {
+    const now = Date.now();
+    // Originally 60m session, paused with 50m remaining
+    localStore[STORAGE_KEYS.state] = {
+      ...DEFAULT_STATE,
+      mode: MODES.paused,
+      previousMode: MODES.work,
+      pausedRemainingMs: 50 * 60 * 1000 // 50 mins
+    };
+    // User saves settings changing workMinutes from 60 to 30 while paused
+    syncStore[STORAGE_KEYS.settings] = { ...DEFAULT_SETTINGS, workMinutes: 30 };
+
+    const res = await sendMessage({ type: MESSAGE_TYPES.resume });
+    assert.equal(res.ok, true);
+
+    const state = localStore[STORAGE_KEYS.state];
+    assert.equal(state.mode, MODES.work);
+    // Remaining time must be capped at 30 minutes, currentSessionStart must not be in the future
+    assert.ok(state.currentSessionStart <= now, "currentSessionStart must not be in the future");
+    assert.equal(
+      state.currentSessionEnd,
+      now + 30 * 60 * 1000,
+      `currentSessionEnd should be now + 30m, got ${(state.currentSessionEnd - now) / 60000}m`
+    );
+    const span = state.currentSessionEnd - state.currentSessionStart;
+    assert.equal(span, 30 * 60 * 1000, "session span must match new workMinutes (30m)");
+  });
 });
