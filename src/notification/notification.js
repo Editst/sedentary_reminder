@@ -20,6 +20,15 @@ let countdownEndMs = 0;
 let primaryAction = MESSAGE_TYPES.skip;
 let countdownStarted = false;
 
+function safeClose() {
+  window.close();
+  setTimeout(() => {
+    if (!document.hidden) {
+      statusEl.textContent = "自动关闭被浏览器阻止，请手动关闭此页面。";
+    }
+  }, 500);
+}
+
 function renderCountdown() {
   const now = Date.now();
   const safeSeconds = Math.max(0, Math.ceil((countdownEndMs - now) / 1000));
@@ -31,7 +40,7 @@ function renderCountdown() {
   if (safeSeconds <= 0) {
     statusEl.textContent = "倒计时结束，提醒页即将关闭。";
     clearTimers();
-    window.close();
+    safeClose();
   }
 }
 
@@ -52,7 +61,7 @@ function startCountdown(seconds) {
   }
   closeTimer = window.setTimeout(() => {
     clearTimers();
-    window.close();
+    safeClose();
   }, initialSeconds * 1000);
 }
 
@@ -167,7 +176,7 @@ async function act(type, extra = {}) {
   try {
     await sendExtensionMessage({ type, ...extra });
     clearTimers();
-    window.close();
+    safeClose();
   } catch (error) {
     statusEl.textContent = `操作失败：${error instanceof Error ? error.message : String(error)}`;
   }
