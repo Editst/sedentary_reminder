@@ -1,4 +1,5 @@
-import { DEFAULT_STATE, MODES, DEFAULT_SETTINGS } from "./constants.js";
+import { DEFAULT_STATE, MODES, RESUMABLE_MODES, DEFAULT_SETTINGS } from "./constants.js";
+import { toFiniteNumber } from "./validation.js";
 
 export function createInitialState(now, settings) {
   return {
@@ -70,7 +71,7 @@ export function pauseState(state) {
 export function resumeState(state) {
   return {
     ...state,
-    mode: state.previousMode || MODES.work
+    mode: RESUMABLE_MODES.includes(state.previousMode) ? state.previousMode : MODES.work
   };
 }
 
@@ -197,9 +198,4 @@ export function formatSeconds(seconds) {
   const minutes = String(Math.floor(safeSeconds / 60)).padStart(2, "0");
   const secs = String(safeSeconds % 60).padStart(2, "0");
   return `${minutes}:${secs}`;
-}
-
-function toFiniteNumber(value, fallback = 0) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : fallback;
 }

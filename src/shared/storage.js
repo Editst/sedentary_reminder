@@ -1,6 +1,12 @@
-import { DEFAULT_SETTINGS, DEFAULT_STATE, MODES, STORAGE_KEYS } from "./constants.js";
+import { DEFAULT_SETTINGS, DEFAULT_STATE, MODES, RESUMABLE_MODES, STORAGE_KEYS } from "./constants.js";
 import { createInitialState } from "./timer_engine.js";
-import { normalizeBoolean, normalizeSettings } from "./validation.js";
+import {
+  clampInteger,
+  normalizeBoolean,
+  normalizeSettings,
+  toFiniteNumber,
+  toInteger
+} from "./validation.js";
 
 const MEMORY = {
   [STORAGE_KEYS.settings]: null,
@@ -8,41 +14,10 @@ const MEMORY = {
 };
 
 const MODE_SET = new Set(Object.values(MODES));
-const RESUMABLE_MODE_SET = new Set([MODES.work, MODES.shortBreak, MODES.longBreak]);
+const RESUMABLE_MODE_SET = new Set(RESUMABLE_MODES);
 
 function getChromeStorageArea(areaName) {
   return globalThis.chrome?.storage?.[areaName] ?? null;
-}
-
-function toFiniteNumber(value, fallback) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function toOptionalInteger(value) {
-  if (typeof value !== "number" && typeof value !== "string") {
-    return null;
-  }
-  if (typeof value === "string" && value.trim() === "") {
-    return null;
-  }
-  const parsed = Number(value);
-  return Number.isInteger(parsed) ? parsed : null;
-}
-
-function clampInteger(value, min, max, fallback) {
-  if (typeof value !== "number" && typeof value !== "string") {
-    return fallback;
-  }
-  if (typeof value === "string" && value.trim() === "") {
-    return fallback;
-  }
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed)) {
-    return fallback;
-  }
-
-  return Math.min(Math.max(parsed, min), max);
 }
 
 function normalizeMode(value, fallback = DEFAULT_STATE.mode) {
@@ -92,7 +67,7 @@ export function normalizeState(input = {}, now = Date.now(), settings = DEFAULT_
     notificationTabId:
       raw.notificationTabId === null || raw.notificationTabId === undefined
         ? null
-        : toOptionalInteger(raw.notificationTabId),
+        : toInteger(raw.notificationTabId),
     reminderKind: raw.reminderKind === "due" || raw.reminderKind === "test" ? raw.reminderKind : null
   };
 

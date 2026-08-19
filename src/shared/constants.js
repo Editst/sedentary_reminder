@@ -10,6 +10,8 @@ export const MODES = {
   paused: "paused"
 };
 
+export const RESUMABLE_MODES = [MODES.work, MODES.shortBreak, MODES.longBreak];
+
 export const MESSAGE_TYPES = {
   getStatus: "GET_STATUS",
   saveSettings: "SAVE_SETTINGS",

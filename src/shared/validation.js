@@ -2,7 +2,12 @@ import { DEFAULT_SETTINGS } from "./constants.js";
 
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
-function toInteger(value) {
+export function toFiniteNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export function toInteger(value) {
   if (typeof value !== "number" && typeof value !== "string") {
     return null;
   }
@@ -14,7 +19,7 @@ function toInteger(value) {
   return Number.isInteger(parsed) ? parsed : null;
 }
 
-function clampInteger(value, min, max, fallback) {
+export function clampInteger(value, min, max, fallback) {
   const parsed = toInteger(value);
   if (parsed === null) {
     return fallback;

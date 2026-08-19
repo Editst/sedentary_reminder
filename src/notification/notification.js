@@ -157,7 +157,7 @@ function renderSnapshot(snapshot) {
   renderActions(snapshot);
 
   if (!countdownStarted) {
-    const closeSeconds = snapshot.autoCloseSeconds || snapshot.settings.reminderAutoCloseSeconds || 30;
+    const closeSeconds = snapshot.autoCloseSeconds ?? snapshot.settings?.reminderAutoCloseSeconds ?? 30;
     startCountdown(closeSeconds);
   }
 }

@@ -1,7 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_SETTINGS } from "../src/shared/constants.js";
-import { normalizeSettings } from "../src/shared/validation.js";
+import {
+  clampInteger,
+  normalizeSettings,
+  toFiniteNumber,
+  toInteger
+} from "../src/shared/validation.js";
+
+test("utility functions (toFiniteNumber, toInteger, clampInteger)", () => {
+  assert.equal(toFiniteNumber("1.5"), 1.5);
+  assert.equal(toFiniteNumber("abc", 10), 10);
+  assert.equal(toInteger("42"), 42);
+  assert.equal(toInteger("1.9"), null);
+  assert.equal(toInteger("abc"), null);
+  assert.equal(toInteger(""), null);
+  assert.equal(clampInteger(10, 1, 5, 3), 5);
+  assert.equal(clampInteger(0, 1, 5, 3), 1);
+  assert.equal(clampInteger(3, 1, 5, 3), 3);
+  assert.equal(clampInteger("invalid", 1, 5, 3), 3);
+});
 
 test("returns defaults for empty input", () => {
   assert.deepEqual(normalizeSettings(), DEFAULT_SETTINGS);

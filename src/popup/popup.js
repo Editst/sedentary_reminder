@@ -157,6 +157,10 @@ if (globalThis.chrome?.storage?.onChanged) {
 }
 
 void refresh();
-window.setInterval(() => {
+const intervalTimer = window.setInterval(() => {
   updateRemainingDisplay();
 }, 1000);
+
+window.addEventListener("beforeunload", () => {
+  window.clearInterval(intervalTimer);
+});
