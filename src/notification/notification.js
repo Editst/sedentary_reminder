@@ -192,8 +192,10 @@ document.addEventListener("visibilitychange", () => {
 });
 
 if (globalThis.chrome?.storage?.onChanged) {
+  let storageDebounce = null;
   globalThis.chrome.storage.onChanged.addListener(() => {
-    void syncSnapshot();
+    clearTimeout(storageDebounce);
+    storageDebounce = setTimeout(() => void syncSnapshot(), 300);
   });
 }
 

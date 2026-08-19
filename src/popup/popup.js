@@ -149,8 +149,10 @@ optionsButton.addEventListener("click", async () => {
 });
 
 if (globalThis.chrome?.storage?.onChanged) {
+  let storageDebounce = null;
   globalThis.chrome.storage.onChanged.addListener(() => {
-    void refresh();
+    clearTimeout(storageDebounce);
+    storageDebounce = setTimeout(() => void refresh(), 300);
   });
 }
 
