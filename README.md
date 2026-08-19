@@ -148,6 +148,7 @@ time_reminder/
 │  │  └─ notification.css
 │  └─ assets/icons/       # 扩展图标 16/32/48/128
 ├─ tests/                 # Node 原生测试
+│  ├─ manifest.test.js        # 清单配置与暴露面安全检测
 │  ├─ messaging.test.js       # 跨模块消息发送与错误包装测试
 │  ├─ service-worker.test.js  # 状态机/并发/调度/生命周期集成测试
 │  ├─ storage.test.js         # 状态归一化与字段清洗
@@ -159,22 +160,24 @@ time_reminder/
 
 ## 测试状态
 
-当前自动化测试覆盖（86 项用例，全部通过）：
+当前自动化测试覆盖（94 项用例，全部通过）：
 
 - 配置校验逻辑（默认值回退、统一边界钳位、延后选项多分隔符清洗与去重升序排序、时段与星期格式校验）
 - 工作 / 短休息 / 长休息切换逻辑
-- 生效时段判定（同日时段、跨午夜时段、跨周末计算与下次生效时间戳瞄准）
+- 生效时段判定（同日时段、跨午夜时段、跨周末计算与下次生效时间戳瞄准、零宽度时段防御）
+- 单天配置（如仅周日）跨周 6 天调度起始时间边界计算
 - 时长与倒计时格式化纯函数（`formatDurationMs`, `formatSeconds`）
 - 跨模块消息通信异常包装与 Promise 解析处理（`sendExtensionMessage`）
-- 恢复工作会话起止时间精确校准（防止跨天暂停导致进度条分母失真）
+- 恢复工作会话起止时间精确校准与暂停期间配置缩短上限钳位
 - 提醒页在非生效时段关闭自动休眠调度（`tabs.onRemoved` 时段感知）
-- `normalizeState` 缺省与空配置安全回退
+- `normalizeState` 缺省与空配置安全回退及自定义 `settings` 配置透传
 - 延后提醒逻辑与暂停清零
 - `canEndBreak` / `canStartBreak` 条件判定（无需提醒页打开）
 - `withStateLock` 死锁预防（嵌套调用不阻塞）与 `5000ms` 超时熔断及底层异常恢复机制
 - `handleSkip` 调度计算（按完整工作时长重置，并累加长休息 `cycleCount`）
 - 测试提醒无损关闭（关闭测试提醒不破坏进行中的工作会话进度）
 - 提醒页关闭兜底 Alarm 调度（超时或关闭后自动延后，防止扩展假死）
+- 提醒页 `window.close()` 被浏览器安全策略阻止时的降级引导与定时器注销
 - 到期状态下调用 `getStatus` 的 Alarm 自动保留与防假死
 - 休息会话到期通知触发与状态流转
 - Action Badge 状态与徽标文字同步（倒计时/状态标记/ZZZ/OFF）
@@ -186,8 +189,9 @@ time_reminder/
 - `scheduleMainAlarm` NaN 输入防护
 - `tabs.onRemoved` 事件的状态清理
 - 存储状态归一化与未知属性过滤
-- 空星期选择 (`scheduleDays`) 的严格异常阻断防线
+- 空星期选择 (`scheduleDays`) 与相同起止时间异常阻断防线
 - `time-reminder-badge-tick` 周期同步刷新机制与休眠释放
 - 延后提醒 `snoozedUntil` 在多场景（测试提醒/保存设置/UI关闭）下的防篡改与正确保持
 - CQS (命令查询分离) 原则检查：`getStatus` 零副作用写入断言
 - `manifest.json` 安全防护：零 `web_accessible_resources` 暴露特征断言
+- 通用校验函数（`toFiniteNumber`, `toInteger`, `clampInteger`）与 `RESUMABLE_MODES` 单一数据源断言
