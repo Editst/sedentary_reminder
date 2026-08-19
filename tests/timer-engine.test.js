@@ -124,6 +124,10 @@ test("isWithinSchedule: same-day work window", () => {
 
   // When schedule is disabled, always true
   assert.equal(isWithinSchedule({ ...scheduleSettings, scheduleEnabled: false }, saturday10am), true);
+
+  // Equal start and end times (zero-width window) should return false
+  const equalTimeSettings = { ...scheduleSettings, scheduleStartTime: "09:00", scheduleEndTime: "09:00" };
+  assert.equal(isWithinSchedule(equalTimeSettings, friday10am), false, "equal start and end time should return false");
 });
 
 test("isWithinSchedule: cross-midnight overnight window", () => {

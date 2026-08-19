@@ -110,7 +110,7 @@ export function isWithinSchedule(settings, nowMs = Date.now()) {
   const endMinutes = parseTimeToMinutes(settings.scheduleEndTime, DEFAULT_SETTINGS.scheduleEndTime);
 
   if (startMinutes === endMinutes) {
-    return true;
+    return false;
   }
 
   const date = new Date(nowMs);

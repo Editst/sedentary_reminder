@@ -48,11 +48,17 @@ function setSelectedDays(days = [1, 2, 3, 4, 5]) {
 }
 
 function serializeForm() {
+  const scheduleStartTime = elements.scheduleStartTime.value || "09:00";
+  const scheduleEndTime = elements.scheduleEndTime.value || "18:00";
+  if (elements.scheduleEnabled.checked && scheduleStartTime === scheduleEndTime) {
+    throw new Error("生效时间范围的开始时间与结束时间不能相同。");
+  }
+
   return {
     enabled: elements.enabled.checked,
     scheduleEnabled: elements.scheduleEnabled.checked,
-    scheduleStartTime: elements.scheduleStartTime.value || "09:00",
-    scheduleEndTime: elements.scheduleEndTime.value || "18:00",
+    scheduleStartTime,
+    scheduleEndTime,
     scheduleDays: getSelectedDays(),
     workMinutes: Number(elements.workMinutes.value),
     shortBreakMinutes: Number(elements.shortBreakMinutes.value),
