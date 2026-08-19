@@ -171,6 +171,25 @@ test("getNextScheduleStartTime: accurately calculates next active window start",
   assert.equal(nextDate.getMinutes(), 0, "Next start minute should be 0");
 });
 
+test("getNextScheduleStartTime: single-day schedule finds next start across full week (BUG-08)", () => {
+  const sundayOnlySettings = {
+    scheduleEnabled: true,
+    scheduleStartTime: "10:00",
+    scheduleEndTime: "18:00",
+    scheduleDays: [0] // Sunday only
+  };
+
+  // Monday 2026-08-10 00:01 -> next start is Sunday 2026-08-16 10:00 (6 days later)
+  const mondayMidnight = new Date(2026, 7, 10, 0, 1, 0).getTime();
+  const nextStart = getNextScheduleStartTime(sundayOnlySettings, mondayMidnight);
+  const nextDate = new Date(nextStart);
+
+  assert.equal(nextDate.getDay(), 0, "Next start day should be Sunday");
+  assert.equal(nextDate.getDate(), 16, "Next start date should be August 16");
+  assert.equal(nextDate.getHours(), 10, "Next start hour should be 10");
+  assert.equal(nextDate.getMinutes(), 0, "Next start minute should be 0");
+});
+
 test("formatDurationMs: formats ms into MM:SS or HH:MM:SS", () => {
   assert.equal(formatDurationMs(0), "00:00");
   assert.equal(formatDurationMs(5000), "00:05");
