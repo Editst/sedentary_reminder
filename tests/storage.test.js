@@ -1,12 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  getDurationForMode,
   normalizeState,
   readSettings,
   readState,
   writeSettings,
-  writeState,
-  clearState
+  writeState
 } from "../src/shared/storage.js";
 import { DEFAULT_SETTINGS, DEFAULT_STATE, MODES } from "../src/shared/constants.js";
 
@@ -97,24 +97,18 @@ describe("writeState uses provided settings for normalizeState (BUG-01)", () => 
   });
 });
 
-describe("clearState passes settings to writeState (BUG-02)", () => {
-  it("should produce initial state with correct workMinutes duration", async () => {
-    const originalChrome = globalThis.chrome;
-    globalThis.chrome = undefined;
+describe("getDurationForMode", () => {
+  it("should calculate duration correctly for each mode", () => {
+    const settings = {
+      workMinutes: 50,
+      shortBreakMinutes: 7,
+      longBreakMinutes: 20
+    };
 
-    try {
-      const customSettings = { ...DEFAULT_SETTINGS, workMinutes: 30 };
-      await writeSettings(customSettings);
-      const now = 5000000;
-      const state = await clearState(now, customSettings);
-      // Initial state's sessionEnd should be based on 30 min, not 45 min
-      assert.equal(
-        state.currentSessionEnd,
-        now + 30 * 60 * 1000,
-        `clearState should use workMinutes=30, got ${(state.currentSessionEnd - now) / 60000}min`
-      );
-    } finally {
-      globalThis.chrome = originalChrome;
-    }
+    assert.equal(getDurationForMode(MODES.work, settings), 50 * 60 * 1000);
+    assert.equal(getDurationForMode(MODES.shortBreak, settings), 7 * 60 * 1000);
+    assert.equal(getDurationForMode(MODES.longBreak, settings), 20 * 60 * 1000);
+    assert.equal(getDurationForMode(MODES.paused, settings, MODES.shortBreak), 7 * 60 * 1000);
+    assert.equal(getDurationForMode(MODES.paused, settings, MODES.work), 50 * 60 * 1000);
   });
 });

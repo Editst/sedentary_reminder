@@ -11,7 +11,8 @@ import {
   pauseState,
   resumeState
 } from "../shared/timer_engine.js";
-import { loadSnapshot, writeSettings, writeState } from "../shared/storage.js";
+import { getDurationForMode, loadSnapshot, writeSettings, writeState } from "../shared/storage.js";
+import { toInteger } from "../shared/validation.js";
 
 let _stateLock = Promise.resolve();
 
@@ -124,7 +125,7 @@ async function updateActionBadge(state, settings, now = Date.now()) {
   }
 }
 
-function normalizePreviousMode(state) {
+function getEffectiveMode(state) {
   return state.mode === MODES.paused ? state.previousMode : state.mode;
 }
 
@@ -135,7 +136,7 @@ function buildStatus(state, settings, now = Date.now()) {
   const due = inSchedule && (state.mode === MODES.work
     ? isSessionDue(state, now)
     : state.mode !== MODES.paused && state.currentSessionEnd <= now);
-  const effectiveMode = normalizePreviousMode(state);
+  const effectiveMode = getEffectiveMode(state);
   const hasActiveReminder = Boolean(state.notificationOpen && state.notificationTabId != null && state.reminderKind);
   const reminderIsDue = hasActiveReminder && state.reminderKind === REMINDER_KINDS.due;
   const reminderIsTest = hasActiveReminder && state.reminderKind === REMINDER_KINDS.test;
@@ -366,23 +367,9 @@ function applySettingsToState(state, settings) {
     return state;
   }
 
-  if (state.mode === MODES.shortBreak) {
-    return {
-      ...state,
-      currentSessionEnd: state.currentSessionStart + settings.shortBreakMinutes * 60 * 1000
-    };
-  }
-
-  if (state.mode === MODES.longBreak) {
-    return {
-      ...state,
-      currentSessionEnd: state.currentSessionStart + settings.longBreakMinutes * 60 * 1000
-    };
-  }
-
   return {
     ...state,
-    currentSessionEnd: state.currentSessionStart + settings.workMinutes * 60 * 1000
+    currentSessionEnd: state.currentSessionStart + getDurationForMode(state.mode, settings, state.previousMode)
   };
 }
 
@@ -503,10 +490,6 @@ async function _reconcileRuntimeInner(now, { openDueReminder = false, isBadgeTic
   return buildStatus(state, settings, now);
 }
 
-async function persistInitialSnapshotIfNeeded(now) {
-  await loadSnapshot(now, { persistIfMissing: true });
-}
-
 function reconcileRuntime({ openDueReminder = false, isBadgeTick = false } = {}) {
   return withStateLock(() => _reconcileRuntimeInner(Date.now(), { openDueReminder, isBadgeTick }));
 }
@@ -539,14 +522,6 @@ function handleSaveSettings(payload) {
   });
 }
 
-function isAllowedPause(status) {
-  return status.canPause;
-}
-
-function isAllowedResume(status) {
-  return status.canResume;
-}
-
 function isAllowedSkip(status, state) {
   const canDismissTest = state.reminderKind === REMINDER_KINDS.test && status.hasActiveReminder;
   return canDismissTest || status.canStartBreak;
@@ -561,7 +536,7 @@ function handlePause() {
     }
 
     const status = buildStatus(snapshot.state, snapshot.settings, now);
-    if (!isAllowedPause(status)) {
+    if (!status.canPause) {
       return status;
     }
 
@@ -581,7 +556,7 @@ function handleResume() {
     }
 
     const status = buildStatus(snapshot.state, snapshot.settings, now);
-    if (!isAllowedResume(status)) {
+    if (!status.canResume) {
       return status;
     }
 
@@ -589,12 +564,7 @@ function handleResume() {
     nextState.snoozedUntil = 0;
 
     const effectiveMode = nextState.mode;
-    const modeDuration =
-      effectiveMode === MODES.shortBreak
-        ? snapshot.settings.shortBreakMinutes * 60 * 1000
-        : effectiveMode === MODES.longBreak
-          ? snapshot.settings.longBreakMinutes * 60 * 1000
-          : snapshot.settings.workMinutes * 60 * 1000;
+    const modeDuration = getDurationForMode(effectiveMode, snapshot.settings, nextState.previousMode);
 
     if (typeof snapshot.state.pausedRemainingMs === "number" && snapshot.state.pausedRemainingMs > 0) {
       const effectiveRemainingMs = Math.min(snapshot.state.pausedRemainingMs, modeDuration);
@@ -736,11 +706,6 @@ function handleTestReminder() {
   });
 }
 
-function parseStrictInteger(value, fallback) {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) ? parsed : fallback;
-}
-
 async function handleMessage(message) {
   switch (message?.type) {
     case MESSAGE_TYPES.getStatus:
@@ -756,7 +721,7 @@ async function handleMessage(message) {
     case MESSAGE_TYPES.resume:
       return handleResume();
     case MESSAGE_TYPES.snooze: {
-      return handleSnooze(parseStrictInteger(message.minutes, NaN));
+      return handleSnooze(toInteger(message?.minutes) ?? NaN);
     }
     case MESSAGE_TYPES.startBreak:
       return handleStartBreak();
@@ -773,7 +738,7 @@ async function handleMessage(message) {
 
 globalThis.chrome.runtime.onInstalled.addListener(() => {
   return (async () => {
-    await persistInitialSnapshotIfNeeded(Date.now());
+    await loadSnapshot(Date.now(), { persistIfMissing: true });
     await reconcileRuntime({ openDueReminder: true });
   })().catch((error) => {
     console.error("[onInstalled] bootstrapRuntime failed:", error);
@@ -782,7 +747,7 @@ globalThis.chrome.runtime.onInstalled.addListener(() => {
 
 globalThis.chrome.runtime.onStartup.addListener(() => {
   return (async () => {
-    await persistInitialSnapshotIfNeeded(Date.now());
+    await loadSnapshot(Date.now(), { persistIfMissing: true });
     await reconcileRuntime({ openDueReminder: true });
   })().catch((error) => {
     console.error("[onStartup] bootstrapRuntime failed:", error);

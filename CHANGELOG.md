@@ -41,18 +41,37 @@
 - [x] 通用校验函数集中化与 DRY 消除
 - [x] 扩充 TDD 测试用例至 94 项且 100% 绿灯通过
 
-### 阶段五：用户体验与提醒形式增强（规划中）
+### 阶段五：代码消融与架构冗余优化（已完成 - v1.4.6）
+- [x] 清除 `clearState` 未引用死代码并下线对应测试
+- [x] 提取公共纯函数 `getDurationForMode` 消除多模块 3 处模式时长重复计算
+- [x] 内联 `isAllowedPause`、`isAllowedResume` 与 `persistInitialSnapshotIfNeeded` 单行代理函数
+- [x] 重命名 `normalizePreviousMode` 为 `getEffectiveMode` 消除同名异义语义混淆
+- [x] 统一使用 `validation.js` 中的 `toInteger` 替代本地重复函数 `parseStrictInteger`
+
+### 阶段六：用户体验与提醒形式增强（规划中）
 - [ ] 支持可选的轻量级音频提示音（Web Audio API 纯音频合成）
 - [ ] 休息倒计时全屏遮罩模式（可选配置）
 - [ ] 每日/每周久坐统计数据看板与数据本地导出
 
-### 阶段六：跨平台与多端同步（未来演进）
+### 阶段七：跨平台与多端同步（未来演进）
 - [ ] 国际化多语言支持（`chrome.i18n`）
 - [ ] 多套节奏预设（番茄钟 25/5、深度工作 50/10 等）
 
 ---
 
 ## 版本变更历史 (Changelog)
+
+### [1.4.6] - 2026-09-06
+
+#### Refactor
+- **storage**: 导出 `getDurationForMode` 纯函数，集中收敛按模式计算时长的逻辑；彻底移除 `src/` 中零调用的冗余死代码函数 `clearState`。
+- **service-worker**: 复用 `getDurationForMode`，消除 `applySettingsToState` 与 `handleResume` 内散落的模式时长三元分支判断。
+- **service-worker**: 内联单行过度封装函数 `isAllowedPause`、`isAllowedResume` 及 `persistInitialSnapshotIfNeeded`，提高代码直读性与调用链路平铺度。
+- **service-worker**: 重命名内部函数 `normalizePreviousMode` 为 `getEffectiveMode`，消除与 `storage.js` 模块同名不同义的语义混淆。
+- **service-worker**: 移除本地整数解析冗余函数 `parseStrictInteger`，统一复用 `validation.js` 导出的 `toInteger`。
+
+#### Test
+- **tdd**: 移除已被删除的 `clearState` 测试用例，增加针对公共函数 `getDurationForMode` 各种模式及回退状态的覆盖用例；全量 94 项测试持续保持 100% 绿灯通过。
 
 ### [1.4.5] - 2026-08-19
 
